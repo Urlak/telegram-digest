@@ -81,19 +81,23 @@ async def fetch_target_messages(client: TelegramClient, target_groups: list[str]
                     continue
                     
                 # Extract sender info explicitly
+                # Identify sender name (Channels vs Users)
                 sender = await message.get_sender()
-                sender_name = "Unknown"
+                sender_name = "Channel Content"
                 if sender:
+                    # For users, first_name is typical. For channels/chats, 'title' is used.
                     first = getattr(sender, 'first_name', '') or ''
                     last = getattr(sender, 'last_name', '') or ''
-                    sender_name = f"{first} {last}".strip() or "Unknown"
+                    title = getattr(sender, 'title', '') or ''
+                    sender_name = f"{first} {last}".strip() or title or "Unknown"
                     
                 # Build and add our message payload
                 results.append({
                     "message_id": message.id,
+                    "group_id": str(dialog.id),
                     "group_name": group_name,
                     "sender_name": sender_name,
-                    "date": message.date.strftime("%Y-%m-%d %H:%M:%S"),
+                    "date": message.date.strftime("%Y-%m-%d %H:%M"),
                     "text": message.text
                 })
                 

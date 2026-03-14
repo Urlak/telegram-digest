@@ -27,7 +27,9 @@ def summarize_messages(grouped_messages: dict) -> list[str]:
         
         # Attach the messages with their contextual metadata
         for msg in reversed(messages):  # Reversing them means chronological order generally
-            prompt += f"[{msg['date']}] {msg['sender_name']}: {msg['text']}\n"
+            # Shorten timestamp to [HH:MM] to save tokens
+            short_time = msg['date'][-5:] 
+            prompt += f"[{short_time}] {msg['sender_name']}: {msg['text']}\n"
             
         try:
             # Call Gemini using the new syntax and `gemini-2.5-flash`
