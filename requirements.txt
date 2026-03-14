@@ -1,0 +1,4 @@
+telethon>=1.33.0
+google-generativeai>=0.4.0
+python-dotenv>=1.0.1
+pytest>=8.0.0

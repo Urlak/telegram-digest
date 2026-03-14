@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  telegram-digest:
+    build: .
+    container_name: telegram-digest
+    restart: unless-stopped
+    volumes:
+      # Mount the configuration .env file
+      - ./.env:/app/.env
+      # Persist SQLite Database & Telegram Authentication Session 
+      # back to the host machine cleanly
+      - ./data:/app/data
