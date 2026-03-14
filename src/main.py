@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import sqlite3
 
 from src.config import setup_logging
 from src.config import TG_API_ID, TG_API_HASH, TG_PHONE_NUMBER
@@ -46,16 +47,12 @@ async def main():
     all_messages = await fetch_target_messages(client, groups_list, limit_msgs=MESSAGE_LIMIT, hours_back=HOURS_BACK)
     logger.info(f"Fetched {len(all_messages)} messages matching constraints.")
         
-    # 5. Filter for Only New Unprocessed Messages (Using our SQLite Tracker)
+    # 5. Filter for Only New Unprocessed Messages
     new_messages = []
     for msg in all_messages:
         if not is_message_processed(DB_PATH, msg["message_id"], msg["group_name"]):
             new_messages.append(msg)
             
-    if not new_messages:
-        logger.info("No new, unprocessed messages to aggregate. Exiting.")
-        return
-        
     # 6. Group New Messages by Chat to keep Gemini contexts clean and isolated
     grouped_messages = {}
     for msg in new_messages:
@@ -64,18 +61,67 @@ async def main():
             grouped_messages[gname] = []
         grouped_messages[gname].append(msg)
         
-    logger.info(f"Messages grouped into {len(grouped_messages)} unique groups.")
+    logger.info(f"Messages grouped into {len(grouped_messages)} unique groups with new content.")
         
     # 7. Summarize Messages
-    summaries = summarize_messages(grouped_messages)
+    new_summaries = summarize_messages(grouped_messages)
     
-    # 8. Output Summaries to stdout cleanly formatted with Markdown Checkmarks
+    # Save the newly generated summaries into the digest cache
+    for gname, summary in zip(grouped_messages.keys(), new_summaries):
+        from src.db import save_latest_digest
+        save_latest_digest(DB_PATH, gname, summary)
+    
+    # 8. Output Summaries to stdout
     print("\n" + "="*60)
     print("TELEGRAM DIGEST OUTPUT")
     print("="*60 + "\n")
-    for summary in summaries:
-        print(summary)
+    
+    # We need a list of actual group names to check the cache for.
+    # If we fetched new messages, we know the names from `grouped_messages`.
+    # If we didn't fetch new messages, we need to map the raw IDs to names.
+    # For simplicity, we can just get the names from the DB digests table for the targeted groups.
+    
+    # We will iterate through target groups. If they have a new summary, print it.
+    # If not, try to fetch the latest cached summary for whatever names they resolve to.
+    from src.db import get_latest_digest
+    
+    # Track which groups we already printed to avoid duplicates if ID and Name both match
+    printed_groups = set()
+    
+    for gname in grouped_messages.keys():
+        idx = list(grouped_messages.keys()).index(gname)
+        print(new_summaries[idx])
         print("-" * 40)
+        printed_groups.add(gname)
+        
+    # For any configured targets we DID NOT get new messages for today, try fetching cache
+    # Since config might be an ID (-100123) we attempt to fetch by config string directly, 
+    # but we ALSO rely on the fact that if it was an ID, the previous run would have saved it 
+    # under the resolved name. 
+    for config_target in groups_list:
+        # If we didn't print a new summary matching this configuration string
+        if config_target not in printed_groups:
+            # We try to find ANY cached digest that might match this target from our DB history
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            # If target was an ID, we might have saved it under the actual group name in the past.
+            # We can just fetch all digests and print them if we didn't generate new ones.
+            # Simplest approach for the user: iterate all cached digests and print.
+            c.execute("SELECT group_name, digest_text FROM digests")
+            rows = c.fetchall()
+            conn.close()
+            
+            for row in rows:
+                cached_gname, cached_text = row
+                if cached_gname not in printed_groups:
+                    print(f"[CACHED DIGEST - NO NEW MESSAGES]\n{cached_text}")
+                    print("-" * 40)
+                    printed_groups.add(cached_gname)
+                    
+            if not rows and not printed_groups:
+                print(f"### Summary for {config_target}\n\n*No messages found and no previous digest exists.*\n")
+                print("-" * 40)
+                break # Only print this generic fallback once if nothing exists
         
     # 9. Mark Messages as Processed to prevent re-processing later
     for msg in new_messages:

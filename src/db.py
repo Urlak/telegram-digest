@@ -89,7 +89,9 @@ def save_latest_digest(db_path: str, group_name: str, digest_text: str):
     conn.commit()
     conn.close()
 
-def get_latest_digest(db_path: str, group_name: str) -> str:
+from typing import Optional
+
+def get_latest_digest(db_path: str, group_name: str) -> Optional[str]:
     """Retrieves the latest generated digest for a group, if any."""
     conn = get_connection(db_path)
     cursor = conn.cursor()
