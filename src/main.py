@@ -9,6 +9,7 @@ from src.config import TARGET_GROUPS, MESSAGE_LIMIT, HOURS_BACK
 from src.db import init_db, is_message_processed, mark_message_processed
 from src.telegram_client import get_client, fetch_target_messages, print_available_groups
 from src.summarizer import summarize_messages
+from src.logic import group_messages_by_id, format_messages_to_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -59,52 +60,16 @@ async def main():
         if not is_message_processed(DB_PATH, msg["message_id"], msg["group_id"], msg["group_name"]):
             new_messages.append(msg)
             
-    # 6. Group Messages by Group ID for Summarization (Removes redundancy)
-    # New structure: { group_id: { "name": "...", "messages": [...] } }
-    grouped_messages = {}
-    for msg in all_messages:
-        gid = msg['group_id']
-        gname = msg['group_name']
-        
-        if gid not in grouped_messages:
-            grouped_messages[gid] = {
-                "name": gname,
-                "messages": []
-            }
-            
-        # Strip redundant group info from the message object itself
-        clean_msg = {k: v for k, v in msg.items() if k not in ['group_id', 'group_name']}
-        grouped_messages[gid]["messages"].append(clean_msg)
-        
+    # 6. Group Messages by Group ID for Summarization
+    grouped_messages = group_messages_by_id(all_messages)
     logger.info(f"Messages grouped into {len(grouped_messages)} unique groups.")
     
-    # 6.5 Special Debug Mode: Save clean messages to Markdown (.md) and exit
+    # 6.5 Special EXPORT_ONLY Mode: Save clean messages to Markdown (.md) and exit
     from src.config import EXPORT_ONLY
     if EXPORT_ONLY:
         MD_PATH = os.path.join(DATA_DIR, 'clean_messages.md')
-        md_content = ""
+        md_content = format_messages_to_markdown(grouped_messages)
         
-        for gid, group_info in grouped_messages.items():
-            gname = group_info["name"]
-            md_content += f"# SOURCE: {gname} (ID: {gid})\n---\n"
-            
-            # Sort messages chronologically by the full date string
-            msgs = sorted(group_info["messages"], key=lambda x: x['date'])
-            
-            current_date = None
-            for m in msgs:
-                msg_date = m['date'][:10] # YYYY-MM-DD
-                msg_time = m['date'][11:] # HH:MM
-                
-                if msg_date != current_date:
-                    current_date = msg_date
-                    md_content += f"\n## DATE: {current_date}\n\n"
-                
-                reply_info = f" (reply to {m['reply_to_id']})" if m.get('reply_to_id') else ""
-                md_content += f"**[[{msg_time}]] [ID:[{m['message_id']}]] [{m['sender_name']}]**{reply_info}: {m['text']}\n"
-            
-            md_content += "\n\n"
-            
         with open(MD_PATH, 'w', encoding='utf-8') as f:
             f.write(md_content)
             

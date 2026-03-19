@@ -1,5 +1,6 @@
 import logging
 import re
+from src.logic import clean_text_basic
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 
@@ -12,12 +13,8 @@ MIN_TEXT_LEN = 10  # characters after cleaning; below this the message is skippe
 MAX_TEXT_LEN = 500  # characters sent to Gemini per message to cap token cost
 
 def _clean_text(text: str) -> str:
-    """Collapses whitespace but KEEPS URLs for Gemini context."""
-    if not text:
-        return ""
-    # Collapse multiple newlines/spaces
-    cleaned = re.sub(r'\s+', ' ', text).strip()
-    return cleaned
+    """Uses centralized logic to collapse whitespace but KEEP URLs."""
+    return clean_text_basic(text)
 
 
 async def get_client(session_name: str, api_id: int, api_hash: str, phone: str = None) -> TelegramClient:
