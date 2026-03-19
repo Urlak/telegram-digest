@@ -14,9 +14,10 @@ TG_PHONE_NUMBER = os.getenv("TG_PHONE_NUMBER")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Extraction Options
-TARGET_GROUPS = os.getenv("TARGET_GROUPS", "")
-MESSAGE_LIMIT = int(os.getenv("MESSAGE_LIMIT", "100"))
-HOURS_BACK = int(os.getenv("HOURS_BACK", "24"))
+TARGET_GROUPS = [g.strip() for g in os.getenv('TARGET_GROUPS', '').split(',') if g.strip()]
+MESSAGE_LIMIT = int(os.getenv('MESSAGE_LIMIT', '100'))
+HOURS_BACK = int(os.getenv('HOURS_BACK', '24'))
+SAVE_CLEAN_MESSAGES = os.getenv('SAVE_CLEAN_MESSAGES', 'False').lower() == 'true'
 
 def setup_logging():
     """

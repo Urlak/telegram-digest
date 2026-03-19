@@ -17,6 +17,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 DB_PATH = os.path.join(DATA_DIR, 'digest.db')
 SESSION_PATH = os.path.join(DATA_DIR, 'session')
+OUTPUT_FILE = os.path.join(DATA_DIR, 'latest_digest.txt')
 
 async def main():
     # 1. Initialize Logging
@@ -37,7 +38,7 @@ async def main():
         return
         
     # 4. Fetch Telegram Messages constraints
-    groups_list = [g.strip() for g in TARGET_GROUPS.split(",") if g.strip()]
+    groups_list = TARGET_GROUPS
     if not groups_list:
         # If no groups configured, list all available groups so the user can easily configure them
         await print_available_groups(client)
@@ -53,18 +54,29 @@ async def main():
         if not is_message_processed(DB_PATH, msg["message_id"], msg["group_id"], msg["group_name"]):
             new_messages.append(msg)
             
-    # 6. Group New Messages by Chat to keep Gemini contexts clean and isolated
+    # 6. Group Messages by Group Name for Summarization
     grouped_messages = {}
-    for msg in new_messages:
-        gname = msg["group_name"]
+    for msg in all_messages:
+        gname = msg['group_name']
         if gname not in grouped_messages:
             grouped_messages[gname] = []
         grouped_messages[gname].append(msg)
         
     logger.info(f"Messages grouped into {len(grouped_messages)} unique groups with new content.")
+    
+    # 6.5 Special Debug Mode: Save clean messages to JSON and exit
+    from src.config import SAVE_CLEAN_MESSAGES
+    if SAVE_CLEAN_MESSAGES:
+        import json
+        JSON_PATH = os.path.join(DATA_DIR, 'clean_messages.json')
+        with open(JSON_PATH, 'w', encoding='utf-8') as f:
+            json.dump(all_messages, f, ensure_ascii=False, indent=2)
+        logger.info(f"SAVE_CLEAN_MESSAGES is ON. Saved {len(all_messages)} messages to {JSON_PATH}. Skipping summary.")
+        print(f"\n[DEBUG MODE] Saved {len(all_messages)} clean messages to {JSON_PATH}. Summarization skipped.\n")
+        return
         
     # 7. Summarize Messages
-    new_summaries = summarize_messages(grouped_messages)
+    new_summaries, api_duration = summarize_messages(grouped_messages)
     
     # Save the newly generated summaries into the digest cache
     for gname, summary in zip(grouped_messages.keys(), new_summaries):
@@ -80,6 +92,9 @@ async def main():
     print("TELEGRAM DIGEST OUTPUT")
     print("="*60 + "\n")
     
+    # Also prepare content for the text file
+    digest_output = "TELEGRAM DIGEST OUTPUT\n" + "="*40 + "\n\n"
+    
     from src.db import get_latest_digest
     
     # Track which groups we already printed to avoid duplicates if ID and Name both match
@@ -90,6 +105,7 @@ async def main():
         idx = list(grouped_messages.keys()).index(gname)
         print(new_summaries[idx])
         print("-" * 40)
+        digest_output += new_summaries[idx] + "\n" + "-"*40 + "\n"
         printed_groups.add(gname)
         
         # Also track the ID for this group to avoid duplicates in the target loop
@@ -107,11 +123,32 @@ async def main():
         if cached_digest:
             print(f"[CACHED DIGEST - NO NEW MESSAGES]\n{cached_digest}")
             print("-" * 40)
+            digest_output += f"[CACHED DIGEST - NO NEW MESSAGES]\n{cached_digest}\n" + "-"*40 + "\n"
             printed_groups.add(target)
             
     if not printed_groups:
-        print("### Summary\n\n*No messages found and no previous digests exist.*\n")
+        no_msg = "### Summary\n\n*No messages found and no previous digests exist.*\n"
+        print(no_msg)
         print("-" * 40)
+        digest_output += no_msg + "-"*40 + "\n"
+        
+    # 8.5 Add Metadata at the bottom for context
+    if all_messages:
+        dates = [m['date'] for m in all_messages]
+        first_msg = min(dates)
+        last_msg = max(dates)
+        time_range = f"{first_msg} to {last_msg}"
+    else:
+        time_range = "N/A"
+
+    metadata = f"\n[METADATA]\n- Time Range: {time_range}\n- Config Window: last {HOURS_BACK} hours\n- Total messages processed: {len(all_messages)}\n- API Processing Time: {api_duration:.2f}s\n"
+    print(metadata)
+    digest_output += metadata
+        
+    # Save the accumulated output to file (override)
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+        f.write(digest_output)
+    logger.info(f"Latest digest saved to {OUTPUT_FILE}")
         
     # 9. Mark Messages as Processed and run basic maintenance
     for msg in new_messages:
