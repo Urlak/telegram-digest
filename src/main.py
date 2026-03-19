@@ -92,6 +92,11 @@ async def main():
         print("-" * 40)
         printed_groups.add(gname)
         
+        # Also track the ID for this group to avoid duplicates in the target loop
+        matching_msg = next((m for m in all_messages if m["group_name"] == gname), None)
+        if matching_msg:
+            printed_groups.add(str(matching_msg["group_id"]))
+        
     # Then for any OTHER configured targets, try to pull from the cache
     for target in groups_list:
         if target in printed_groups: continue

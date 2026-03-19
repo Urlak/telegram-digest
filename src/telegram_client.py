@@ -1,8 +1,23 @@
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 
 logger = logging.getLogger(__name__)
+
+# Matches bare URLs: http(s)/t.me/www links
+_URL_RE = re.compile(r'https?://\S+|www\.\S+|t\.me/\S+', re.IGNORECASE)
+
+MIN_TEXT_LEN = 10  # characters after cleaning; below this the message is skipped
+MAX_TEXT_LEN = 500  # characters sent to Gemini per message to cap token cost
+
+def _clean_text(text: str) -> str:
+    """Remove bare URLs and collapse whitespace. Returns empty string if nothing meaningful remains."""
+    cleaned = _URL_RE.sub('', text or '').strip()
+    # Collapse multiple newlines/spaces
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
 
 async def get_client(session_name: str, api_id: int, api_hash: str, phone: str = None) -> TelegramClient:
     """Initializes and returns the Telethon TelegramClient."""
@@ -70,40 +85,44 @@ async def fetch_target_messages(client: TelegramClient, target_groups: list[str]
             
             # Fetch messages chronologically backwards
             messages_fetched = 0
+            messages_skipped = 0
             async for message in client.iter_messages(dialog.entity, limit=limit_msgs):
                 # Only grab messages within our time horizon
                 if message.date and message.date < time_threshold:
-                    # We have gone back far enough in this chat's history, break the inner loop
                     break
                     
-                if not message.text:
-                    # Skip media-only messages without captions for simplicity
+                # Clean and filter: skip photo-only (no text) and URL/noise-only messages
+                raw_text = message.text or ''
+                cleaned = _clean_text(raw_text)
+                if len(cleaned) < MIN_TEXT_LEN:
+                    messages_skipped += 1
                     continue
+                
+                # Truncate long messages to cap token cost
+                if len(cleaned) > MAX_TEXT_LEN:
+                    cleaned = cleaned[:MAX_TEXT_LEN] + '…'
                     
                 # Extract sender info explicitly
-                # Identify sender name (Channels vs Users)
                 sender = await message.get_sender()
                 sender_name = "Channel Content"
                 if sender:
-                    # For users, first_name is typical. For channels/chats, 'title' is used.
                     first = getattr(sender, 'first_name', '') or ''
                     last = getattr(sender, 'last_name', '') or ''
                     title = getattr(sender, 'title', '') or ''
                     sender_name = f"{first} {last}".strip() or title or "Unknown"
                     
-                # Build and add our message payload
                 results.append({
                     "message_id": message.id,
                     "group_id": str(dialog.id),
                     "group_name": group_name,
                     "sender_name": sender_name,
                     "date": message.date.strftime("%Y-%m-%d %H:%M"),
-                    "text": message.text
+                    "text": cleaned
                 })
-                
                 messages_fetched += 1
                 
-            logger.info(f"Retrieved {messages_fetched} valid messages from '{group_name}'.")
+            logger.info(f"Retrieved {messages_fetched} valid messages from '{group_name}' (skipped {messages_skipped} photo/URL-only).")
+
 
     except Exception as e:
         logger.error(f"Error fetching messages: {e}")
