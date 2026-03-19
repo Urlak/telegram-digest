@@ -96,14 +96,32 @@ async def run_pipeline(config: AppConfig) -> None:
         save_latest_digest(config.db_path, gid, grouped_messages[gid]["name"], summary)
     
     # 8. Output Summaries and Metadata (Reporter)
-    digest_output = build_report(new_summaries, grouped_messages, groups_list, config.db_path)
-    finalize_report(
-        digest_output, 
-        all_messages, 
-        config.hours_back, 
-        api_duration, 
-        config.output_file
-    )
+    data_dir = os.path.dirname(config.db_path)
+    for gid, summary in zip(grouped_messages.keys(), new_summaries):
+        gname = grouped_messages[gid]["name"]
+        safe_name = re.sub(r'[^\w\s-]', '', gname).strip().replace(' ', '_')
+        report_filename = f"digest_{safe_name}.md"
+        report_path = os.path.join(data_dir, report_filename)
+        
+        # Prepare individual group content for the file (includes metadata)
+        # We pass ONLY this group's messages to finalize_report for accurate metadata
+        group_messages = [m for m in all_messages if m.get('group_id') == gid or m.get('group_name') == gname]
+        
+        finalize_report(
+            summary, 
+            group_messages, 
+            config.hours_back, 
+            api_duration / len(new_summaries), 
+            report_path
+        )
+    
+    # Still build a combined report for the console output if multiple groups
+    if len(new_summaries) > 1:
+        combined_output = build_report(new_summaries, grouped_messages, groups_list, config.db_path)
+        print("\n" + "="*60)
+        print("COMBINED TELEGRAM DIGEST (CONSOLE ONLY)")
+        print(combined_output)
+        print("="*60 + "\n")
         
     # 9. Mark Messages as Processed and run basic maintenance
     for msg in new_messages:

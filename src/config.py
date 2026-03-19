@@ -20,7 +20,6 @@ class AppConfig:
     max_fetch_limit: int
     db_path: str
     session_path: str
-    output_file: str
 
 def load_config() -> AppConfig:
     """Loads configuration from environment and defines standard paths."""
@@ -39,8 +38,7 @@ def load_config() -> AppConfig:
         max_llm_messages=int(os.getenv('MAX_LLM_MESSAGES', '500')),
         max_fetch_limit=10000,
         db_path=os.path.join(data_dir, 'digest.db'),
-        session_path=os.path.join(data_dir, 'session'),
-        output_file=os.path.join(data_dir, 'latest_digest.txt')
+        session_path=os.path.join(data_dir, 'session')
     )
 
 # Legacy support for module-level variables (will be phased out in Phase 3)

@@ -75,4 +75,4 @@ def finalize_report(
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(final_content)
     
-    logger.info(f"Latest digest saved to {output_file}")
+    logger.info(f"Report saved to {output_file}")
