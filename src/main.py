@@ -70,14 +70,22 @@ async def main():
     # 6.5 Special EXPORT_ONLY Mode: Save clean messages to Markdown (.md) and exit
     from src.config import EXPORT_ONLY
     if EXPORT_ONLY:
-        MD_PATH = os.path.join(DATA_DIR, 'clean_messages.md')
-        md_content = format_messages_to_markdown(grouped_messages)
-        
-        with open(MD_PATH, 'w', encoding='utf-8') as f:
-            f.write(md_content)
+        import re
+        for gid, group_info in grouped_messages.items():
+            gname = group_info["name"]
+            # Sanitize group name for filename
+            safe_name = re.sub(r'[^\w\s-]', '', gname).strip().replace(' ', '_')
+            filename = f"clean_messages_{safe_name}.md"
+            MD_PATH = os.path.join(DATA_DIR, filename)
             
-        logger.info(f"EXPORT_ONLY is ON. Saved grouped messages to {MD_PATH}. Skipping summary.")
-        print(f"\n[EXPORT MODE] Saved grouped messages to {MD_PATH}. Summarization skipped.\n")
+            # Format ONLY this group's messages
+            md_content = format_messages_to_markdown({gid: group_info})
+            
+            with open(MD_PATH, 'w', encoding='utf-8') as f:
+                f.write(md_content)
+                
+            logger.info(f"EXPORT_ONLY is ON. Saved '{gname}' to {MD_PATH}.")
+            print(f"[EXPORT MODE] Saved messages from '{gname}' to {filename}.")
         return
     
     # 7. Summarize Messages
