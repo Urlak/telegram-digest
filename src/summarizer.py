@@ -37,22 +37,17 @@ def summarize_messages(grouped_messages: dict) -> tuple[list[str], float]:
         if is_truncated:
             notice = f"*(Note: Only the latest {MAX_LLM_MESSAGES} messages were used for this summary)*\n\n"
 
-        prompt = f"""Analyze Telegram messages from '{group_name}'.
-Your task: Create a 'Skimmable Briefing' for a user who missed the discussion.
+        prompt = f"""
+Проанализируй последние сообщения из чата '{group_name}'.
+Твоя задача — составить краткий отчет для человека, который все пропустил.
 
-STRICT FORMATTING RULES:
-1. **Top Headline**: Start with a single sentence (TL;DR) summarizing the overall mood and main event.
-2. **Key Discussions (The "What")**: 3-5 bullet points. Group related messages. Do NOT list individual opinions; summarize the consensus or the main points of debate.
-3. **Decisions & Tasks (The "Action")**: List only specific agreements, bot commands, or plans. Use names here.
-4. **Resources & Tech**: Only links, specific numbers (prices, specs), or software mentions.
+Сгруппируй сообщения в 5-7 основных тем. Для каждой темы напиши один плотный абзац: суть обсуждения, ключевые аргументы, важные технические детали и итоговое решение (если оно есть). Упомяни активных участников обсуждения.
 
-STYLE:
-- Language: Russian.
-- Tone: Extremely concise, "Executive Summary" style.
-- No "filler" sentences (e.g., "In this chat, users talked about...").
-- Use bold text only for keywords or names in 'Decisions'.
+Игнорируй любой шум: приветствия, благодарности, флуд и неинформативные реплики. Пиши техническим, лаконичным языком, без вводных слов и лишних пояснений.
 
-MESSAGES TO PROCESS:
+Важно: пиши строго на русском языке.
+
+Сообщения для анализа:
 """
         # Format messages with IDs and reply context for Gemini
         message_lines = []

@@ -102,6 +102,12 @@ async def fetch_target_messages(client: TelegramClient, target_groups: list[str]
                     
                 # Extract sender info explicitly
                 sender = await message.get_sender()
+                
+                # Filter out bots
+                if sender and getattr(sender, 'bot', False):
+                    messages_skipped += 1
+                    continue
+                    
                 sender_name = "Channel Content"
                 if sender:
                     first = getattr(sender, 'first_name', '') or ''
