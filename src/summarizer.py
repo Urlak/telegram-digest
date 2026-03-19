@@ -1,11 +1,14 @@
 import logging
 import time
 from google import genai
-from src.config import GEMINI_API_KEY
 
 logger = logging.getLogger(__name__)
 
-def summarize_messages(grouped_messages: dict) -> tuple[list[str], float]:
+def summarize_messages(
+    grouped_messages: dict, 
+    api_key: str, 
+    max_messages: int
+) -> tuple[list[str], float]:
     """
     Summarizes messages using Gemini AI.
     grouped_messages structure: { gid: { "name": "...", "messages": [...] } }
@@ -15,27 +18,25 @@ def summarize_messages(grouped_messages: dict) -> tuple[list[str], float]:
         return [], 0.0
 
     # Initialize the new genai client
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=api_key)
     
     summaries = []
     total_duration = 0.0
-    
-    from src.config import MAX_LLM_MESSAGES
     
     for gid, group_info in grouped_messages.items():
         group_name = group_info["name"]
         raw_messages = group_info["messages"]
         
         # Truncate to most recent N messages for LLM safety
-        messages = raw_messages[-MAX_LLM_MESSAGES:]
-        is_truncated = len(raw_messages) > MAX_LLM_MESSAGES
+        messages = raw_messages[-max_messages:]
+        is_truncated = len(raw_messages) > max_messages
         
         logger.info(f"Summarizing {len(messages)} messages for group: {group_name} ({gid})" + 
                     (f" [TRUNCATED from {len(raw_messages)}]" if is_truncated else ""))
         
         notice = ""
         if is_truncated:
-            notice = f"*(Note: Only the latest {MAX_LLM_MESSAGES} messages were used for this summary)*\n\n"
+            notice = f"*(Note: Only the latest {max_messages} messages were used for this summary)*\n\n"
 
         prompt = f"""
 Проанализируй последние сообщения из чата '{group_name}'.

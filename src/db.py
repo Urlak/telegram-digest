@@ -13,7 +13,7 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
-def init_db(db_path: str):
+def init_db(db_path: str) -> None:
     """Initializes the normalized database schema."""
     logger.info(f"Initializing database at {db_path}")
     with get_connection(db_path) as conn:
@@ -115,7 +115,14 @@ def is_message_processed(db_path: str, message_id: int, telegram_id: Optional[st
         )
         return cursor.fetchone() is not None
 
-def mark_message_processed(db_path: str, message_id: int, telegram_id: Optional[str], group_name: str, sender_name: str, message_date: str):
+def mark_message_processed(
+    db_path: str, 
+    message_id: int, 
+    telegram_id: str | None, 
+    group_name: str, 
+    sender_name: str, 
+    message_date: str
+) -> None:
     """Saves a message record using normalized foreign keys."""
     with get_connection(db_path) as conn:
         group_id = _get_or_create_group(conn, telegram_id, group_name)
@@ -132,7 +139,7 @@ def mark_message_processed(db_path: str, message_id: int, telegram_id: Optional[
         except sqlite3.IntegrityError:
             pass
 
-def save_latest_digest(db_path: str, telegram_id: Optional[str], group_name: str, digest_text: str):
+def save_latest_digest(db_path: str, telegram_id: str | None, group_name: str, digest_text: str) -> None:
     """Saves or updates the latest generated digest for a group."""
     with get_connection(db_path) as conn:
         group_id = _get_or_create_group(conn, telegram_id, group_name)
@@ -163,7 +170,7 @@ def get_latest_digest(db_path: str, target: str) -> Optional[str]:
         return row[0] if row else None
 
 
-def cleanup_old_messages(db_path: str, days: int = 30):
+def cleanup_old_messages(db_path: str, days: int = 30) -> None:
     """Removes processed message tracking older than the specified days."""
     cutoff_date = (time.time() - (days * 86400))
     # SQLite string dates are YYYY-MM-DD HH:MM:SS, which sorts lexicographically

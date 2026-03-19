@@ -1,6 +1,6 @@
 import re
 
-def group_messages_by_id(messages):
+def group_messages_by_id(messages: list[dict]) -> dict:
     """Groups a flat list of messages by group_id."""
     grouped = {}
     for msg in messages:
@@ -18,7 +18,7 @@ def group_messages_by_id(messages):
         grouped[gid]["messages"].append(clean_msg)
     return grouped
 
-def format_messages_to_markdown(grouped_messages):
+def format_messages_to_markdown(grouped_messages: dict) -> str:
     """Formats grouped messages into the user's specific Markdown structure."""
     md_content = ""
     for gid, group_info in grouped_messages.items():

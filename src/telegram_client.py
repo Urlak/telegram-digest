@@ -17,7 +17,7 @@ def _clean_text(text: str) -> str:
     return clean_text_basic(text)
 
 
-async def get_client(session_name: str, api_id: int, api_hash: str, phone: str = None) -> TelegramClient:
+async def get_client(session_name: str, api_id: int, api_hash: str, phone: str | None = None) -> TelegramClient:
     """Initializes and returns the Telethon TelegramClient."""
     logger.info(f"Connecting to Telegram with session file: {session_name}.session")
     client = TelegramClient(session_name, api_id, api_hash)
@@ -30,7 +30,7 @@ async def get_client(session_name: str, api_id: int, api_hash: str, phone: str =
         
     return client
 
-async def print_available_groups(client: TelegramClient, limit: int = 50):
+async def print_available_groups(client: TelegramClient, limit: int = 50) -> None:
     """
     Lists the names and IDs of available dialogs so the user can configure TARGET_GROUPS.
     """
@@ -49,7 +49,12 @@ async def print_available_groups(client: TelegramClient, limit: int = 50):
     print("\nTo summarize these, add their ID or exact name to TARGET_GROUPS in your .env file.")
     print("Example: TARGET_GROUPS=-10012345, -10098765, My Awesome Group\n")
 
-async def fetch_target_messages(client: TelegramClient, target_groups: list[str], limit_msgs: int = 100, hours_back: int = 24):
+async def fetch_target_messages(
+    client: TelegramClient, 
+    target_groups: list[str], 
+    limit_msgs: int = 100, 
+    hours_back: int = 24
+) -> list[dict]:
     """
     Fetches messages from explicit target groups within the specified time limit.
     Returns a list of dictionaries with message data.

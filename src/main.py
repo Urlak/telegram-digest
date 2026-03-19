@@ -1,109 +1,114 @@
 import asyncio
 import logging
 import os
+import re
 
-from src.config import setup_logging
-from src.config import TG_API_ID, TG_API_HASH, TG_PHONE_NUMBER
-from src.config import TARGET_GROUPS, MESSAGE_LIMIT, HOURS_BACK
-from src.db import init_db, mark_message_processed
+from src.config import setup_logging, load_config, AppConfig
+from src.db import init_db, mark_message_processed, save_latest_digest, cleanup_old_messages
 from src.telegram_client import get_client, fetch_target_messages, print_available_groups
 from src.summarizer import summarize_messages
 from src.logic import group_messages_by_id, format_messages_to_markdown
 from src.processor import filter_unprocessed_messages
-from src.reporter import generate_report, save_and_print_metadata
+from src.reporter import build_report, finalize_report
 
 logger = logging.getLogger(__name__)
 
-# Standardize path routing for Docker Volume compatibility
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, 'data')
-DB_PATH = os.path.join(DATA_DIR, 'digest.db')
-SESSION_PATH = os.path.join(DATA_DIR, 'session')
-OUTPUT_FILE = os.path.join(DATA_DIR, 'latest_digest.txt')
+# Paths and Globals are now managed by AppConfig via load_config()
 
-async def main():
-    # 1. Initialize Logging
-    setup_logging()
+async def run_pipeline(config: AppConfig) -> None:
+    """
+    Main orchestration logic for the Telegram Digest pipeline.
+    """
+    # 1. Initialize Logging (already done in main)
     logger.info("Starting Telegram Digest Extraction...")
     
     # 2. Ensure Data folder exists and start SQLite
-    os.makedirs(DATA_DIR, exist_ok=True)
-    init_db(DB_PATH)
+    os.makedirs(os.path.dirname(config.db_path), exist_ok=True)
+    init_db(config.db_path)
     
     # 3. Connect to Telegram
     try:
-        # Require integers for api_id
-        api_id = int(TG_API_ID) if TG_API_ID else 0
-        client = await get_client(SESSION_PATH, api_id, TG_API_HASH, TG_PHONE_NUMBER)
+        client = await get_client(
+            config.session_path, 
+            config.tg_api_id, 
+            config.tg_api_hash, 
+            config.tg_phone_number
+        )
     except Exception as e:
-        logger.error(f"Failed to initialize Telegram client. Please check your .env variables. Error: {e}")
+        logger.error(f"Failed to initialize Telegram client. Error: {e}")
         return
         
-    # 4. Fetch Telegram Messages constraints
-    from src.config import MAX_FETCH_LIMIT
-    fetch_limit = min(MESSAGE_LIMIT, MAX_FETCH_LIMIT)
-    if fetch_limit < MESSAGE_LIMIT:
-        logger.warning(f"MESSAGE_LIMIT {MESSAGE_LIMIT} exceeds safety cap. Using {MAX_FETCH_LIMIT} instead.")
+    fetch_limit = min(config.message_limit, config.max_fetch_limit)
+    if fetch_limit < config.message_limit:
+        logger.warning(f"MESSAGE_LIMIT {config.message_limit} exceeds safety cap. Using {config.max_fetch_limit} instead.")
         
-    groups_list = TARGET_GROUPS
+    groups_list = config.target_groups
     if not groups_list:
-        # If no groups configured, list all available groups so the user can easily configure them
         await print_available_groups(client)
         return
         
     logger.info(f"Targeting {len(groups_list)} group(s): {groups_list}")
-    all_messages = await fetch_target_messages(client, groups_list, limit_msgs=fetch_limit, hours_back=HOURS_BACK)
+    all_messages = await fetch_target_messages(
+        client, 
+        groups_list, 
+        limit_msgs=fetch_limit, 
+        hours_back=config.hours_back
+    )
     logger.info(f"Fetched {len(all_messages)} messages matching constraints.")
         
     # 5. Filter for Only New Unprocessed Messages
-    new_messages = filter_unprocessed_messages(all_messages, DB_PATH)
+    new_messages = filter_unprocessed_messages(all_messages, config.db_path)
             
     if not new_messages:
         logger.info("No new messages to process. Checking for cached digests...")
     
     # 6. Group Messages by Group ID for Summarization
-    # We group ALL messages fetched to provide context, but summarizer should prioritize NEW ones?
-    # Actually, the user's logic was to group all_messages.
     grouped_messages = group_messages_by_id(all_messages)
     logger.info(f"Messages grouped into {len(grouped_messages)} unique groups.")
     
     # 6.5 Special EXPORT_ONLY Mode: Save clean messages to Markdown (.md) and exit
-    from src.config import EXPORT_ONLY
-    if EXPORT_ONLY:
-        import re
+    if config.export_only:
+        data_dir = os.path.dirname(config.db_path)
         for gid, group_info in grouped_messages.items():
             gname = group_info["name"]
-            # Sanitize group name for filename
             safe_name = re.sub(r'[^\w\s-]', '', gname).strip().replace(' ', '_')
             filename = f"clean_messages_{safe_name}.md"
-            MD_PATH = os.path.join(DATA_DIR, filename)
+            md_path = os.path.join(data_dir, filename)
             
-            # Format ONLY this group's messages
             md_content = format_messages_to_markdown({gid: group_info})
             
-            with open(MD_PATH, 'w', encoding='utf-8') as f:
+            with open(md_path, 'w', encoding='utf-8') as f:
                 f.write(md_content)
                 
-            logger.info(f"EXPORT_ONLY is ON. Saved '{gname}' to {MD_PATH}.")
+            logger.info(f"EXPORT_ONLY is ON. Saved '{gname}' to {md_path}.")
             print(f"[EXPORT MODE] Saved messages from '{gname}' to {filename}.")
         return
     
     # 7. Summarize Messages
-    new_summaries, api_duration = summarize_messages(grouped_messages)
+    new_summaries, api_duration = summarize_messages(
+        grouped_messages, 
+        api_key=config.gemini_api_key, 
+        max_messages=config.max_llm_messages
+    )
     
     # Save the newly generated summaries into the digest cache
-    from src.db import save_latest_digest as save_digest
     for gid, summary in zip(grouped_messages.keys(), new_summaries):
-        save_digest(DB_PATH, gid, grouped_messages[gid]["name"], summary)
+        save_latest_digest(config.db_path, gid, grouped_messages[gid]["name"], summary)
     
     # 8. Output Summaries and Metadata (Reporter)
-    digest_output = generate_report(new_summaries, grouped_messages, groups_list, DB_PATH)
-    save_and_print_metadata(digest_output, all_messages, HOURS_BACK, api_duration, OUTPUT_FILE)
+    digest_output = build_report(new_summaries, grouped_messages, groups_list, config.db_path)
+    finalize_report(
+        digest_output, 
+        all_messages, 
+        config.hours_back, 
+        api_duration, 
+        config.output_file
+    )
         
     # 9. Mark Messages as Processed and run basic maintenance
     for msg in new_messages:
         mark_message_processed(
-            DB_PATH, 
+            config.db_path, 
             msg["message_id"], 
             msg["group_id"],
             msg["group_name"], 
@@ -112,10 +117,14 @@ async def main():
         )
     
     # Cleanup old message IDs to keep DB small
-    from src.db import cleanup_old_messages
-    cleanup_old_messages(DB_PATH, days=30)
+    cleanup_old_messages(config.db_path, days=30)
         
     logger.info("Script execution complete. Messages properly tracked.")
+
+async def main() -> None:
+    setup_logging()
+    config = load_config()
+    await run_pipeline(config)
 
 
 if __name__ == "__main__":

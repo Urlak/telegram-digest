@@ -3,7 +3,7 @@ from src.db import is_message_processed
 
 logger = logging.getLogger(__name__)
 
-def filter_unprocessed_messages(all_messages, db_path):
+def filter_unprocessed_messages(all_messages: list[dict], db_path: str) -> list[dict]:
     """
     Filters out messages that have already been processed and stored in the database.
     Returns a list of messages that are new.
