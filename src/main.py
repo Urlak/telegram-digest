@@ -1,15 +1,16 @@
 import asyncio
 import logging
 import os
-import sqlite3
 
 from src.config import setup_logging
 from src.config import TG_API_ID, TG_API_HASH, TG_PHONE_NUMBER
 from src.config import TARGET_GROUPS, MESSAGE_LIMIT, HOURS_BACK
-from src.db import init_db, is_message_processed, mark_message_processed
+from src.db import init_db, mark_message_processed
 from src.telegram_client import get_client, fetch_target_messages, print_available_groups
 from src.summarizer import summarize_messages
 from src.logic import group_messages_by_id, format_messages_to_markdown
+from src.processor import filter_unprocessed_messages
+from src.reporter import generate_report, save_and_print_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +56,14 @@ async def main():
     logger.info(f"Fetched {len(all_messages)} messages matching constraints.")
         
     # 5. Filter for Only New Unprocessed Messages
-    new_messages = []
-    for msg in all_messages:
-        if not is_message_processed(DB_PATH, msg["message_id"], msg["group_id"], msg["group_name"]):
-            new_messages.append(msg)
+    new_messages = filter_unprocessed_messages(all_messages, DB_PATH)
             
+    if not new_messages:
+        logger.info("No new messages to process. Checking for cached digests...")
+    
     # 6. Group Messages by Group ID for Summarization
+    # We group ALL messages fetched to provide context, but summarizer should prioritize NEW ones?
+    # Actually, the user's logic was to group all_messages.
     grouped_messages = group_messages_by_id(all_messages)
     logger.info(f"Messages grouped into {len(grouped_messages)} unique groups.")
     
@@ -85,65 +88,9 @@ async def main():
     for gid, summary in zip(grouped_messages.keys(), new_summaries):
         save_digest(DB_PATH, gid, grouped_messages[gid]["name"], summary)
     
-    # 8. Output Summaries to stdout
-    print("\n" + "="*60)
-    print("TELEGRAM DIGEST OUTPUT")
-    print("="*60 + "\n")
-    
-    # Also prepare content for the text file
-    digest_output = "TELEGRAM DIGEST OUTPUT\n" + "="*40 + "\n\n"
-    
-    from src.db import get_latest_digest
-    
-    # Track which groups we already printed to avoid duplicates if ID and Name both match
-    printed_groups = set()
-    
-    # 8.1. New Content First
-    for gid, group_info in grouped_messages.items():
-        gname = group_info["name"]
-        idx = list(grouped_messages.keys()).index(gid)
-        print(new_summaries[idx])
-        print("-" * 40)
-        digest_output += new_summaries[idx] + "\n" + "-"*40 + "\n"
-        printed_groups.add(gid)
-        printed_groups.add(gname) # Keep name for backwards compatibility/matching
-        
-    # Then for any OTHER configured targets, try to pull from the cache
-    for target in groups_list:
-        if target in printed_groups: continue
-        
-        # Note: We attempt to find the cached version. If target is an ID, 
-        # get_latest_digest will now handle the name lookup correctly via JOIN.
-        cached_digest = get_latest_digest(DB_PATH, target)
-        if cached_digest:
-            print(f"[CACHED DIGEST - NO NEW MESSAGES]\n{cached_digest}")
-            print("-" * 40)
-            digest_output += f"[CACHED DIGEST - NO NEW MESSAGES]\n{cached_digest}\n" + "-"*40 + "\n"
-            printed_groups.add(target)
-            
-    if not printed_groups:
-        no_msg = "### Summary\n\n*No messages found and no previous digests exist.*\n"
-        print(no_msg)
-        print("-" * 40)
-        digest_output += no_msg + "-"*40 + "\n"
-        
-    # 8.5 Add Metadata at the bottom for context
-    if all_messages:
-        dates = [m['date'] for m in all_messages]
-        first_msg = min(dates)
-        last_msg = max(dates)
-        time_range = f"{first_msg} to {last_msg}"
-    else:
-        time_range = "N/A"
-
-    metadata = f"\n[METADATA]\n- Time Range: {time_range}\n- Config Window: last {HOURS_BACK} hours\n- Total messages processed: {len(all_messages)}\n- API Processing Time: {api_duration:.2f}s\n"
-    print(metadata)
-    digest_output += metadata
-        
-    # Save the accumulated output to file (override)
-    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-        f.write(digest_output)
-    logger.info(f"Latest digest saved to {OUTPUT_FILE}")
+    # 8. Output Summaries and Metadata (Reporter)
+    digest_output = generate_report(new_summaries, grouped_messages, groups_list, DB_PATH)
+    save_and_print_metadata(digest_output, all_messages, HOURS_BACK, api_duration, OUTPUT_FILE)
         
     # 9. Mark Messages as Processed and run basic maintenance
     for msg in new_messages:
