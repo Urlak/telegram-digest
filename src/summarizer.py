@@ -54,16 +54,28 @@ STYLE:
 
 MESSAGES TO PROCESS:
 """
-        for msg in reversed(messages):
-            short_time = msg['date'][-5:]
-            prompt += f"[{short_time}] {msg['sender_name']}: {msg['text']}\n"
+        # Format messages with IDs and reply context for Gemini
+        message_lines = []
+        for msg in messages:
+            msg_id = msg.get("message_id", "???")
+            reply_id = msg.get("reply_to_id")
+            sender = msg.get("sender_name", "Unknown")
+            text = msg.get("text", "")
+            
+            reply_info = f" (reply to {reply_id})" if reply_id else ""
+            line = f"[{msg_id}] {sender}{reply_info}: {text}"
+            message_lines.append(line)
+            
+        messages_text = "\n".join(message_lines)
+        
+        full_prompt = f"{prompt}\n{messages_text}"
             
         try:
             start_time = time.time()
             # Call Gemini using the new syntax and `gemini-2.5-flash`
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
-                contents=prompt,
+                contents=full_prompt,
                 config={
                     'temperature': 0.3,
                     'top_p': 0.95,

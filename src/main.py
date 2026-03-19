@@ -78,17 +78,40 @@ async def main():
         
     logger.info(f"Messages grouped into {len(grouped_messages)} unique groups.")
     
-    # 6.5 Special Debug Mode: Save clean messages to JSON and exit
+    # 6.5 Special Debug Mode: Save clean messages to Markdown (.md) and exit
     from src.config import SAVE_CLEAN_MESSAGES
     if SAVE_CLEAN_MESSAGES:
-        import json
-        JSON_PATH = os.path.join(DATA_DIR, 'clean_messages.json')
-        with open(JSON_PATH, 'w', encoding='utf-8') as f:
-            json.dump(grouped_messages, f, ensure_ascii=False, indent=2)
-        logger.info(f"SAVE_CLEAN_MESSAGES is ON. Saved grouped messages to {JSON_PATH}. Skipping summary.")
-        print(f"\n[DEBUG MODE] Saved grouped messages to {JSON_PATH}. Summarization skipped.\n")
-        return
+        MD_PATH = os.path.join(DATA_DIR, 'clean_messages.md')
+        md_content = ""
         
+        for gid, group_info in grouped_messages.items():
+            gname = group_info["name"]
+            md_content += f"# SOURCE: {gname} (ID: {gid})\n---\n"
+            
+            # Sort messages chronologically by the full date string
+            msgs = sorted(group_info["messages"], key=lambda x: x['date'])
+            
+            current_date = None
+            for m in msgs:
+                msg_date = m['date'][:10] # YYYY-MM-DD
+                msg_time = m['date'][11:] # HH:MM
+                
+                if msg_date != current_date:
+                    current_date = msg_date
+                    md_content += f"\n## DATE: {current_date}\n\n"
+                
+                reply_info = f" (reply to {m['reply_to_id']})" if m.get('reply_to_id') else ""
+                md_content += f"**[[{msg_time}]] [ID:[{m['message_id']}]] [{m['sender_name']}]**{reply_info}: {m['text']}\n"
+            
+            md_content += "\n\n"
+            
+        with open(MD_PATH, 'w', encoding='utf-8') as f:
+            f.write(md_content)
+            
+        logger.info(f"SAVE_CLEAN_MESSAGES is ON. Saved grouped messages to {MD_PATH}. Skipping summary.")
+        print(f"\n[DEBUG MODE] Saved grouped messages to {MD_PATH}. Summarization skipped.\n")
+        return
+    
     # 7. Summarize Messages
     new_summaries, api_duration = summarize_messages(grouped_messages)
     

@@ -12,10 +12,11 @@ MIN_TEXT_LEN = 10  # characters after cleaning; below this the message is skippe
 MAX_TEXT_LEN = 500  # characters sent to Gemini per message to cap token cost
 
 def _clean_text(text: str) -> str:
-    """Remove bare URLs and collapse whitespace. Returns empty string if nothing meaningful remains."""
-    cleaned = _URL_RE.sub('', text or '').strip()
+    """Collapses whitespace but KEEPS URLs for Gemini context."""
+    if not text:
+        return ""
     # Collapse multiple newlines/spaces
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    cleaned = re.sub(r'\s+', ' ', text).strip()
     return cleaned
 
 
@@ -111,8 +112,14 @@ async def fetch_target_messages(client: TelegramClient, target_groups: list[str]
                     title = getattr(sender, 'title', '') or ''
                     sender_name = f"{first} {last}".strip() or title or "Unknown"
                     
+                # Extract reply info if present
+                reply_to_id = None
+                if message.reply_to and hasattr(message.reply_to, 'reply_to_msg_id'):
+                    reply_to_id = message.reply_to.reply_to_msg_id
+                    
                 results.append({
                     "message_id": message.id,
+                    "reply_to_id": reply_to_id,
                     "group_id": str(dialog.id),
                     "group_name": group_name,
                     "sender_name": sender_name,
