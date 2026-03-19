@@ -19,6 +19,10 @@ MESSAGE_LIMIT = int(os.getenv('MESSAGE_LIMIT', '100'))
 HOURS_BACK = int(os.getenv('HOURS_BACK', '24'))
 SAVE_CLEAN_MESSAGES = os.getenv('SAVE_CLEAN_MESSAGES', 'False').lower() == 'true'
 
+# Safety Limits
+MAX_FETCH_LIMIT = 10000  # Hard cap on Telethon fetch to avoid API bans
+MAX_LLM_MESSAGES = int(os.getenv('MAX_LLM_MESSAGES', '500')) # Max messages sent to Gemini per group
+
 def setup_logging():
     """
     Sets up basic logging to stdout. 

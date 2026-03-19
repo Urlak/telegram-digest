@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 def summarize_messages(grouped_messages: dict) -> tuple[list[str], float]:
     """
     Summarizes messages using Gemini AI.
-    Groups are summarized independently so contexts never mix.
+    grouped_messages structure: { gid: { "name": "...", "messages": [...] } }
     Returns a tuple: (list of Markdown summaries, total_api_duration_seconds).
     """
     if not grouped_messages:
@@ -20,9 +20,23 @@ def summarize_messages(grouped_messages: dict) -> tuple[list[str], float]:
     summaries = []
     total_duration = 0.0
     
-    for group_name, messages in grouped_messages.items():
-        logger.info(f"Summarizing {len(messages)} messages for group: {group_name}")
+    from src.config import MAX_LLM_MESSAGES
+    
+    for gid, group_info in grouped_messages.items():
+        group_name = group_info["name"]
+        raw_messages = group_info["messages"]
         
+        # Truncate to most recent N messages for LLM safety
+        messages = raw_messages[-MAX_LLM_MESSAGES:]
+        is_truncated = len(raw_messages) > MAX_LLM_MESSAGES
+        
+        logger.info(f"Summarizing {len(messages)} messages for group: {group_name} ({gid})" + 
+                    (f" [TRUNCATED from {len(raw_messages)}]" if is_truncated else ""))
+        
+        notice = ""
+        if is_truncated:
+            notice = f"*(Note: Only the latest {MAX_LLM_MESSAGES} messages were used for this summary)*\n\n"
+
         prompt = f"""Analyze Telegram messages from '{group_name}'.
 Your task: Create a 'Skimmable Briefing' for a user who missed the discussion.
 
@@ -59,7 +73,7 @@ MESSAGES TO PROCESS:
             total_duration += duration
             
             # Add a clear Markdown header pointing out which group this is for
-            group_summary = f"### Summary for {group_name}\n\n{response.text.strip()}\n"
+            group_summary = f"### Summary for {group_name}\n\n{notice}{response.text.strip()}\n"
             summaries.append(group_summary)
         except Exception as e:
             logger.error(f"Error calling Gemini API for group {group_name}: {e}")

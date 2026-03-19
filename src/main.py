@@ -38,6 +38,11 @@ async def main():
         return
         
     # 4. Fetch Telegram Messages constraints
+    from src.config import MAX_FETCH_LIMIT
+    fetch_limit = min(MESSAGE_LIMIT, MAX_FETCH_LIMIT)
+    if fetch_limit < MESSAGE_LIMIT:
+        logger.warning(f"MESSAGE_LIMIT {MESSAGE_LIMIT} exceeds safety cap. Using {MAX_FETCH_LIMIT} instead.")
+        
     groups_list = TARGET_GROUPS
     if not groups_list:
         # If no groups configured, list all available groups so the user can easily configure them
@@ -45,7 +50,7 @@ async def main():
         return
         
     logger.info(f"Targeting {len(groups_list)} group(s): {groups_list}")
-    all_messages = await fetch_target_messages(client, groups_list, limit_msgs=MESSAGE_LIMIT, hours_back=HOURS_BACK)
+    all_messages = await fetch_target_messages(client, groups_list, limit_msgs=fetch_limit, hours_back=HOURS_BACK)
     logger.info(f"Fetched {len(all_messages)} messages matching constraints.")
         
     # 5. Filter for Only New Unprocessed Messages
@@ -54,15 +59,24 @@ async def main():
         if not is_message_processed(DB_PATH, msg["message_id"], msg["group_id"], msg["group_name"]):
             new_messages.append(msg)
             
-    # 6. Group Messages by Group Name for Summarization
+    # 6. Group Messages by Group ID for Summarization (Removes redundancy)
+    # New structure: { group_id: { "name": "...", "messages": [...] } }
     grouped_messages = {}
     for msg in all_messages:
+        gid = msg['group_id']
         gname = msg['group_name']
-        if gname not in grouped_messages:
-            grouped_messages[gname] = []
-        grouped_messages[gname].append(msg)
         
-    logger.info(f"Messages grouped into {len(grouped_messages)} unique groups with new content.")
+        if gid not in grouped_messages:
+            grouped_messages[gid] = {
+                "name": gname,
+                "messages": []
+            }
+            
+        # Strip redundant group info from the message object itself
+        clean_msg = {k: v for k, v in msg.items() if k not in ['group_id', 'group_name']}
+        grouped_messages[gid]["messages"].append(clean_msg)
+        
+    logger.info(f"Messages grouped into {len(grouped_messages)} unique groups.")
     
     # 6.5 Special Debug Mode: Save clean messages to JSON and exit
     from src.config import SAVE_CLEAN_MESSAGES
@@ -70,22 +84,18 @@ async def main():
         import json
         JSON_PATH = os.path.join(DATA_DIR, 'clean_messages.json')
         with open(JSON_PATH, 'w', encoding='utf-8') as f:
-            json.dump(all_messages, f, ensure_ascii=False, indent=2)
-        logger.info(f"SAVE_CLEAN_MESSAGES is ON. Saved {len(all_messages)} messages to {JSON_PATH}. Skipping summary.")
-        print(f"\n[DEBUG MODE] Saved {len(all_messages)} clean messages to {JSON_PATH}. Summarization skipped.\n")
+            json.dump(grouped_messages, f, ensure_ascii=False, indent=2)
+        logger.info(f"SAVE_CLEAN_MESSAGES is ON. Saved grouped messages to {JSON_PATH}. Skipping summary.")
+        print(f"\n[DEBUG MODE] Saved grouped messages to {JSON_PATH}. Summarization skipped.\n")
         return
         
     # 7. Summarize Messages
     new_summaries, api_duration = summarize_messages(grouped_messages)
     
     # Save the newly generated summaries into the digest cache
-    for gname, summary in zip(grouped_messages.keys(), new_summaries):
-        # Find the group_id for this gname from our original all_messages list
-        matching_msg = next((m for m in all_messages if m["group_name"] == gname), None)
-        group_id = matching_msg["group_id"] if matching_msg else None
-        
-        from src.db import save_latest_digest
-        save_latest_digest(DB_PATH, group_id, gname, summary)
+    from src.db import save_latest_digest as save_digest
+    for gid, summary in zip(grouped_messages.keys(), new_summaries):
+        save_digest(DB_PATH, gid, grouped_messages[gid]["name"], summary)
     
     # 8. Output Summaries to stdout
     print("\n" + "="*60)
@@ -100,18 +110,15 @@ async def main():
     # Track which groups we already printed to avoid duplicates if ID and Name both match
     printed_groups = set()
     
-    # First print the freshly generated ones
-    for gname in grouped_messages.keys():
-        idx = list(grouped_messages.keys()).index(gname)
+    # 8.1. New Content First
+    for gid, group_info in grouped_messages.items():
+        gname = group_info["name"]
+        idx = list(grouped_messages.keys()).index(gid)
         print(new_summaries[idx])
         print("-" * 40)
         digest_output += new_summaries[idx] + "\n" + "-"*40 + "\n"
-        printed_groups.add(gname)
-        
-        # Also track the ID for this group to avoid duplicates in the target loop
-        matching_msg = next((m for m in all_messages if m["group_name"] == gname), None)
-        if matching_msg:
-            printed_groups.add(str(matching_msg["group_id"]))
+        printed_groups.add(gid)
+        printed_groups.add(gname) # Keep name for backwards compatibility/matching
         
     # Then for any OTHER configured targets, try to pull from the cache
     for target in groups_list:
