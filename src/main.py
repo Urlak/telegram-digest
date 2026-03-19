@@ -79,8 +79,8 @@ async def main():
     logger.info(f"Messages grouped into {len(grouped_messages)} unique groups.")
     
     # 6.5 Special Debug Mode: Save clean messages to Markdown (.md) and exit
-    from src.config import SAVE_CLEAN_MESSAGES
-    if SAVE_CLEAN_MESSAGES:
+    from src.config import EXPORT_ONLY
+    if EXPORT_ONLY:
         MD_PATH = os.path.join(DATA_DIR, 'clean_messages.md')
         md_content = ""
         
@@ -108,8 +108,8 @@ async def main():
         with open(MD_PATH, 'w', encoding='utf-8') as f:
             f.write(md_content)
             
-        logger.info(f"SAVE_CLEAN_MESSAGES is ON. Saved grouped messages to {MD_PATH}. Skipping summary.")
-        print(f"\n[DEBUG MODE] Saved grouped messages to {MD_PATH}. Summarization skipped.\n")
+        logger.info(f"EXPORT_ONLY is ON. Saved grouped messages to {MD_PATH}. Skipping summary.")
+        print(f"\n[EXPORT MODE] Saved grouped messages to {MD_PATH}. Summarization skipped.\n")
         return
     
     # 7. Summarize Messages
