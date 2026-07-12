@@ -1,74 +1,86 @@
-# 🤖 Telegram Digest
+# Telegram Digest
 
-An automated tool to extract messages from Telegram groups and channels, summarizing them into "human-engineering" technical digests using Google Gemini AI.
+A container-native automation tool that extracts messages from Telegram groups or channels and synthesizes them into highly dense, technically focused digests using Google Gemini AI.
 
 ---
 
-## 🚀 Key Features
+## 🚀 Core Capabilities
 
-- **Automated Extraction**: Fetches messages from specified Telegram groups/channels within a configurable time window.
-- **AI-Powered Summarization**: Uses Google Gemini (Flash 2.5) to create narrative, technical summaries.
-- **Smart Grouping**: Automatically handles multiple target groups and saves individual `.md` reports for each.
-- **Persistence**: Tracks processed messages in a local SQLite database to avoid redundant summarization.
-- **Refined AI Style**: Generates "Human-Engineering" digests—narrative, dense, and technically focused.
+- **Container-Native Execution**: Requires no database. Relies only on a local session file for authentication, making it ideal for ephemeral Docker runs or cron jobs.
+- **Smart Fetch Logic**: 
+  - Dynamically calculates API fetch limits based on unread message counts.
+  - Automatically acknowledges messages as read upon successful retrieval.
+  - Configurable fallback limits for inactive channels.
+- **Dual Execution Modes**:
+  - **Interactive CLI**: Prompts for target group selection and unread extraction parameters on the fly.
+  - **Auto Mode (`--auto`)**: Runs headlessly based strictly on `.env` parameters. 
+- **AI-Powered Synthesis**: Leverages Google Gemini (Flash 2.5) to compress sprawling chat histories into structured, narrative summaries.
+- **Export-Only Mode**: Bypasses the LLM entirely, dumping raw, cleaned message logs directly to Markdown.
 
 ## 🛠️ Tech Stack
 
-- **Python 3.12+**
-- **Telethon**: Telegram MTProto client.
-- **Google Generative AI**: Summarization engine.
-- **SQLite**: Local message tracking and caching.
-- **Docker**: Ready for deployment on NAS or servers.
+- **Runtime**: Python 3.12+
+- **Telegram Client**: Telethon (MTProto)
+- **AI Engine**: Google Generative AI SDK
+- **Deployment**: Docker / Docker Compose
+
+---
 
 ## 🏃 Quick Start
 
 ### 1. Prerequisites
-- [Telegram API credentials](https://my.telegram.org/apps) (`API_ID`, `API_HASH`).
-- [Google AI Studio API Key](https://aistudio.google.com).
+- [Telegram API credentials](https://my.telegram.org/apps) (`TG_API_ID`, `TG_API_HASH`)
+- [Google AI Studio API Key](https://aistudio.google.com) (`GEMINI_API_KEY`)
 
 ### 2. Setup
 ```bash
-# Clone and enter directory
 git clone <repo-url>
 cd telegram-digest
 
-# Create virtual environment
+# Initialize virtual environment
 python -m venv .venv
-source .venv/bin/activate  # macOS/Linux
+source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 
 # Configure environment
 cp .env.template .env
-# Edit .env with your credentials
+# Edit .env with your specific credentials and limits
 ```
 
-### 3. Usage
+### 3. Execution
+
+**Interactive Mode** (Manual group selection and logic configuration):
 ```bash
-# Standard run (incremental updates)
 python -m src.main
+```
 
-# Clean run (reset database and re-summarize everything)
-rm data/digest.db && python -m src.main
+**Auto Mode** (Headless execution using `.env` properties):
+```bash
+python -m src.main --auto
+```
 
-# Run tests
+**Run Test Suite**:
+```bash
 pytest
 ```
 
-## 📦 Docker Deployment (Synology NAS)
-The project includes a `Dockerfile` and `docker-compose.yml` optimized for Synology Container Manager.
+---
+
+## 📦 Docker Deployment 
+
+Optimized for lightweight deployment on servers or NAS environments (e.g., Synology Container Manager).
 
 ```bash
 docker-compose up --build -d
 ```
-*Note: Ensure the `/data` directory is mounted for database and session persistence.*
 
-## 📂 Project Structure
-- `src/`: Core application logic (Client, DB, Processor, Summarizer, Reporter).
-- `data/`: SQLite database, Telethon sessions, and generated Markdown reports.
-- `tests/`: Comprehensive unit test suite.
-- `.env.template`: Template for environment variables.
+> **Important:** Ensure your `./data` directory is properly mounted in `docker-compose.yml`. Telethon requires persistent access to `session.session` to avoid triggering Telegram's rate limits with repeated login requests. Output artifacts (`.md` files) are also generated in this directory.
 
----
-*Created with 💙 by Antigravity*
+## 📂 Project Architecture
+
+- `src/` — Core pipeline (Client, Config, Processor, Summarizer, Reporter).
+- `data/` — Output directory for Markdown reports and Telethon session files.
+- `tests/` — Unit test suite.
+- `.env.template` — Configuration skeleton.
