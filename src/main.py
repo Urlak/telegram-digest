@@ -14,19 +14,11 @@ logger = logging.getLogger(__name__)
 
 # Paths and Globals are now managed by AppConfig via load_config()
 
-async def run_pipeline(config: AppConfig) -> None:
-    """
-    Main orchestration logic for the Telegram Digest pipeline.
-    """
-    # 1. Initialize Logging (already done in main)
-    logger.info("Starting Telegram Digest Extraction...")
-    
-    # 2. Ensure Data folder exists (now only for session file or exports)
+async def _init_client(config: AppConfig) -> TelegramClient | None:
+    """Initializes and connects the Telegram client."""
     os.makedirs(os.path.dirname(config.session_path), exist_ok=True)
-    
-    # 3. Connect to Telegram
     try:
-        client = await get_client(
+        return await get_client(
             config.session_path, 
             config.tg_api_id, 
             config.tg_api_hash, 
@@ -34,6 +26,33 @@ async def run_pipeline(config: AppConfig) -> None:
         )
     except Exception as e:
         logger.error(f"Failed to initialize Telegram client. Error: {e}")
+        return None
+
+
+def _export_messages(config: AppConfig, messages: list[dict], group_name: str, group_id: str) -> None:
+    """Saves clean messages to a Markdown file in export-only mode."""
+    data_dir = os.path.dirname(config.session_path)
+    safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
+    filename = f"clean_messages_{safe_name}.md"
+    md_path = os.path.join(data_dir, filename)
+    
+    md_content = format_messages_to_markdown(messages, group_name, group_id)
+    
+    with open(md_path, 'w', encoding='utf-8') as f:
+        f.write(md_content)
+        
+    logger.info(f"EXPORT_ONLY is ON. Saved '{group_name}' to {md_path}.")
+    print(f"[EXPORT MODE] Saved messages from '{group_name}' to {filename}.")
+
+
+async def run_pipeline(config: AppConfig) -> None:
+    """
+    Main orchestration logic for the Telegram Digest pipeline.
+    """
+    logger.info("Starting Telegram Digest Extraction...")
+    
+    client = await _init_client(config)
+    if not client:
         return
         
     fetch_limit = min(config.message_limit, config.max_fetch_limit)
@@ -54,37 +73,23 @@ async def run_pipeline(config: AppConfig) -> None:
     )
     logger.info(f"Fetched {len(all_messages)} messages matching constraints.")
         
-    # 5. Process all messages directly
-    new_messages = all_messages
-            
-    if not new_messages:
+    if not all_messages:
         logger.info("No messages to process.")
         return
     
     # Extract real group name and ID from the first message
-    group_name = new_messages[0]['group_name']
-    group_id = new_messages[0]['group_id']
+    group_name = all_messages[0]['group_name']
+    group_id = all_messages[0]['group_id']
     
     # Collapse consecutive messages
-    collapsed_messages = collapse_consecutive_messages(new_messages)
+    collapsed_messages = collapse_consecutive_messages(all_messages)
     
-    # 6.5 Special EXPORT_ONLY Mode: Save clean messages to Markdown (.md) and exit
+    # Special EXPORT_ONLY Mode
     if config.export_only:
-        data_dir = os.path.dirname(config.session_path)
-        safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
-        filename = f"clean_messages_{safe_name}.md"
-        md_path = os.path.join(data_dir, filename)
-        
-        md_content = format_messages_to_markdown(collapsed_messages, group_name, group_id)
-        
-        with open(md_path, 'w', encoding='utf-8') as f:
-            f.write(md_content)
-            
-        logger.info(f"EXPORT_ONLY is ON. Saved '{group_name}' to {md_path}.")
-        print(f"[EXPORT MODE] Saved messages from '{group_name}' to {filename}.")
+        _export_messages(config, collapsed_messages, group_name, group_id)
         return
     
-    # 7. Summarize Messages
+    # Summarize Messages
     summary, api_duration = summarize_messages(
         collapsed_messages, 
         group_name,
@@ -92,14 +97,13 @@ async def run_pipeline(config: AppConfig) -> None:
         max_messages=config.max_llm_messages
     )
     
-    # 8. Output Summaries and Metadata (Reporter)
+    # Output Summaries and Metadata (Reporter)
     data_dir = os.path.dirname(config.session_path)
     safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
     report_filename = f"digest_{safe_name}.md"
     report_path = os.path.join(data_dir, report_filename)
     
     report_output = build_report(summary, group_name)
-    
     finalize_report(
         report_output, 
         all_messages, 
