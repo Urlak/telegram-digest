@@ -12,7 +12,7 @@ class AppConfig:
     tg_api_hash: str
     tg_phone_number: str | None
     gemini_api_key: str
-    target_groups: list[str]
+    target_group: str
     message_limit: int
     hours_back: int
     export_only: bool
@@ -30,7 +30,7 @@ def load_config() -> AppConfig:
         tg_api_hash=os.getenv("TG_API_HASH", ""),
         tg_phone_number=os.getenv("TG_PHONE_NUMBER"),
         gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
-        target_groups=[g.strip() for g in os.getenv('TARGET_GROUPS', '').split(',') if g.strip()],
+        target_group=os.getenv('TARGET_GROUP', '').strip(),
         message_limit=min(int(os.getenv('MESSAGE_LIMIT', '100')), 10000),
         hours_back=int(os.getenv('HOURS_BACK', '24')),
         export_only=os.getenv('EXPORT_ONLY', 'False').lower() == 'true',
@@ -45,7 +45,7 @@ TG_API_ID = _config.tg_api_id
 TG_API_HASH = _config.tg_api_hash
 TG_PHONE_NUMBER = _config.tg_phone_number
 GEMINI_API_KEY = _config.gemini_api_key
-TARGET_GROUPS = _config.target_groups
+TARGET_GROUP = _config.target_group
 MESSAGE_LIMIT = _config.message_limit
 HOURS_BACK = _config.hours_back
 EXPORT_ONLY = _config.export_only

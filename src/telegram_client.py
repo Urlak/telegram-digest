@@ -32,9 +32,9 @@ async def get_client(session_name: str, api_id: int, api_hash: str, phone: str |
 
 async def print_available_groups(client: TelegramClient, limit: int = 50) -> None:
     """
-    Lists the names and IDs of available dialogs so the user can configure TARGET_GROUPS.
+    Lists the names and IDs of available dialogs so the user can configure TARGET_GROUP.
     """
-    logger.info("TARGET_GROUPS not set. Listing available groups...")
+    logger.info("TARGET_GROUP not set. Listing available groups...")
     print("\n" + "="*60)
     print("AVAILABLE TELEGRAM GROUPS/CHATS (Top 50)")
     print("="*60)
@@ -46,17 +46,17 @@ async def print_available_groups(client: TelegramClient, limit: int = 50) -> Non
             name = dialog.name or "Unknown"
             print(f"{dialog.id:<20} | {name}")
             
-    print("\nTo summarize these, add their ID or exact name to TARGET_GROUPS in your .env file.")
-    print("Example: TARGET_GROUPS=-10012345, -10098765, My Awesome Group\n")
+    print("\nTo summarize one of these, add its ID or exact name to TARGET_GROUP in your .env file.")
+    print("Example: TARGET_GROUP=-10012345\n")
 
 async def fetch_target_messages(
     client: TelegramClient, 
-    target_groups: list[str], 
+    target_group: str, 
     limit_msgs: int = 100, 
     hours_back: int = 24
 ) -> list[dict]:
     """
-    Fetches messages from explicit target groups within the specified time limit.
+    Fetches messages from the target group within the specified time limit.
     Returns a list of dictionaries with message data.
     """
     logger.info(f"Fetching max {limit_msgs} msgs from past {hours_back} hours.")
@@ -69,18 +69,10 @@ async def fetch_target_messages(
         # Iterate over all dialogs to find the target ones
         async for dialog in client.iter_dialogs():
             
-            # Check if this dialog matches our target groups either by ID or Exact Name
-            is_target = False
-            for target in target_groups:
-                target = target.strip()
-                if not target: continue
-                
-                # Match by string name or integer ID
-                if dialog.name == target or str(dialog.id) == target:
-                    is_target = True
-                    break
-                    
-            if not is_target:
+            target_group = target_group.strip()
+            if not target_group: continue
+            
+            if dialog.name != target_group and str(dialog.id) != target_group:
                 continue
                 
             group_name = dialog.name
@@ -151,6 +143,7 @@ async def fetch_target_messages(
                 messages_fetched += 1
                 
             logger.info(f"Retrieved {messages_fetched} valid messages from '{group_name}' (skipped {messages_skipped} photo/URL-only).")
+            break # Stop after finding the single target group
 
 
     except Exception as e:

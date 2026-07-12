@@ -6,7 +6,7 @@ import re
 from src.config import setup_logging, load_config, AppConfig
 from src.telegram_client import get_client, fetch_target_messages, print_available_groups
 from src.summarizer import summarize_messages
-from src.logic import group_messages_by_id, format_messages_to_markdown
+from src.logic import format_messages_to_markdown
 from src.processor import collapse_consecutive_messages
 from src.reporter import build_report, finalize_report
 
@@ -40,15 +40,15 @@ async def run_pipeline(config: AppConfig) -> None:
     if fetch_limit < config.message_limit:
         logger.warning(f"MESSAGE_LIMIT {config.message_limit} exceeds safety cap. Using {config.max_fetch_limit} instead.")
         
-    groups_list = config.target_groups
-    if not groups_list:
+    target_group = config.target_group
+    if not target_group:
         await print_available_groups(client)
         return
         
-    logger.info(f"Targeting {len(groups_list)} group(s): {groups_list}")
+    logger.info(f"Targeting group: {target_group}")
     all_messages = await fetch_target_messages(
         client, 
-        groups_list, 
+        target_group, 
         limit_msgs=fetch_limit, 
         hours_back=config.hours_back
     )
@@ -59,67 +59,54 @@ async def run_pipeline(config: AppConfig) -> None:
             
     if not new_messages:
         logger.info("No messages to process.")
+        return
     
-    # 6. Group Messages by Group ID for Summarization
-    grouped_messages = group_messages_by_id(all_messages)
-    logger.info(f"Messages grouped into {len(grouped_messages)} unique groups.")
+    # Extract real group name and ID from the first message
+    group_name = new_messages[0]['group_name']
+    group_id = new_messages[0]['group_id']
     
-    # Collapse consecutive messages within each group
-    for gid in list(grouped_messages.keys()):
-        grouped_messages[gid]["messages"] = collapse_consecutive_messages(grouped_messages[gid]["messages"])
+    # Collapse consecutive messages
+    collapsed_messages = collapse_consecutive_messages(new_messages)
     
     # 6.5 Special EXPORT_ONLY Mode: Save clean messages to Markdown (.md) and exit
     if config.export_only:
-        data_dir = os.path.dirname(config.db_path)
-        for gid, group_info in grouped_messages.items():
-            gname = group_info["name"]
-            safe_name = re.sub(r'[^\w\s-]', '', gname).strip().replace(' ', '_')
-            filename = f"clean_messages_{safe_name}.md"
-            md_path = os.path.join(data_dir, filename)
+        data_dir = os.path.dirname(config.session_path)
+        safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
+        filename = f"clean_messages_{safe_name}.md"
+        md_path = os.path.join(data_dir, filename)
+        
+        md_content = format_messages_to_markdown(collapsed_messages, group_name, group_id)
+        
+        with open(md_path, 'w', encoding='utf-8') as f:
+            f.write(md_content)
             
-            md_content = format_messages_to_markdown({gid: group_info})
-            
-            with open(md_path, 'w', encoding='utf-8') as f:
-                f.write(md_content)
-                
-            logger.info(f"EXPORT_ONLY is ON. Saved '{gname}' to {md_path}.")
-            print(f"[EXPORT MODE] Saved messages from '{gname}' to {filename}.")
+        logger.info(f"EXPORT_ONLY is ON. Saved '{group_name}' to {md_path}.")
+        print(f"[EXPORT MODE] Saved messages from '{group_name}' to {filename}.")
         return
     
     # 7. Summarize Messages
-    new_summaries, api_duration = summarize_messages(
-        grouped_messages, 
+    summary, api_duration = summarize_messages(
+        collapsed_messages, 
+        group_name,
         api_key=config.gemini_api_key, 
         max_messages=config.max_llm_messages
     )
     
     # 8. Output Summaries and Metadata (Reporter)
     data_dir = os.path.dirname(config.session_path)
-    for gid, summary in zip(grouped_messages.keys(), new_summaries):
-        gname = grouped_messages[gid]["name"]
-        safe_name = re.sub(r'[^\w\s-]', '', gname).strip().replace(' ', '_')
-        report_filename = f"digest_{safe_name}.md"
-        report_path = os.path.join(data_dir, report_filename)
-        
-        # Prepare individual group content for the file (includes metadata)
-        # We pass ONLY this group's messages to finalize_report for accurate metadata
-        group_messages = [m for m in all_messages if m.get('group_id') == gid or m.get('group_name') == gname]
-        
-        finalize_report(
-            summary, 
-            group_messages, 
-            config.hours_back, 
-            api_duration / len(new_summaries), 
-            report_path
-        )
+    safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
+    report_filename = f"digest_{safe_name}.md"
+    report_path = os.path.join(data_dir, report_filename)
     
-    # Still build a combined report for the console output if multiple groups
-    if len(new_summaries) > 1:
-        combined_output = build_report(new_summaries, grouped_messages, groups_list)
-        print("\n" + "="*60)
-        print("COMBINED TELEGRAM DIGEST (CONSOLE ONLY)")
-        print(combined_output)
-        print("="*60 + "\n")
+    report_output = build_report(summary, group_name)
+    
+    finalize_report(
+        report_output, 
+        all_messages, 
+        config.hours_back, 
+        api_duration, 
+        report_path
+    )
         
     logger.info("Script execution complete.")
 

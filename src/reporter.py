@@ -4,25 +4,18 @@ import os
 logger = logging.getLogger(__name__)
 
 def build_report(
-    new_summaries: list[str], 
-    grouped_messages: dict, 
-    groups_list: list[str]
+    summary: str, 
+    group_name: str
 ) -> str:
     """
     Pure function: Generates the final report text by combining new summaries and cached ones.
     No print statements or side effects.
     """
     digest_output = "TELEGRAM DIGEST OUTPUT\n" + "="*40 + "\n\n"
-    printed_groups = set()
     
-    # 1. New Content First
-    for gid, group_info in grouped_messages.items():
-        summary_text = new_summaries[list(grouped_messages.keys()).index(gid)]
-        digest_output += summary_text + "\n" + "-"*40 + "\n"
-        printed_groups.add(gid)
-        printed_groups.add(group_info["name"])
-        
-    if not printed_groups:
+    if summary:
+        digest_output += summary + "\n" + "-"*40 + "\n"
+    else:
         no_msg = "### Summary\n\n*No messages found.*\n"
         digest_output += no_msg + "-"*40 + "\n"
         

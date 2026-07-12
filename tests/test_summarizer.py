@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 from src.summarizer import summarize_messages
 
 def test_summarize_messages_empty():
-    summaries, duration = summarize_messages({}, "fake_key", 100)
-    assert summaries == []
+    summaries, duration = summarize_messages([], "Test Group", "fake_key", 100)
+    assert summaries == ""
     assert duration == 0.0
 
 def test_summarize_messages_with_data():
@@ -18,21 +18,15 @@ def test_summarize_messages_with_data():
         mock_response.text = "This is a summary."
         mock_instance.models.generate_content.return_value = mock_response
         
-        grouped_messages = {
-            "123": {
-                "name": "Test Group",
-                "messages": [
-                    {"text": "Hello", "message_id": 1, "sender_name": "Alice", "date": "2024-03-19 12:00:00", "reply_to_id": None},
-                    {"text": "Hi Alice", "message_id": 2, "sender_name": "Bob", "date": "2024-03-19 12:01:00", "reply_to_id": 1}
-                ]
-            }
-        }
+        messages = [
+            {"text": "Hello", "message_id": 1, "sender_name": "Alice", "date": "2024-03-19 12:00:00", "reply_to_id": None},
+            {"text": "Hi Alice", "message_id": 2, "sender_name": "Bob", "date": "2024-03-19 12:01:00", "reply_to_id": 1}
+        ]
         
-        summaries, duration = summarize_messages(grouped_messages, "fake_key", 100)
+        summary, duration = summarize_messages(messages, "Test Group", "fake_key", 100)
         
-        assert len(summaries) == 1
-        assert "This is a summary." in summaries[0]
-        assert "Test Group" in summaries[0]
+        assert "This is a summary." in summary
+        assert "Test Group" in summary
         assert duration >= 0.0
         
         # Verify call content and format
@@ -56,20 +50,15 @@ def test_summarize_messages_truncation():
         mock_instance.models.generate_content.return_value = mock_response
         
         # 3 messages, limit 2
-        grouped_messages = {
-            "123": {
-                "name": "Group",
-                "messages": [
-                    {"text": "1", "message_id": 1, "date": "2024-03-19 11:00:00"},
-                    {"text": "2", "message_id": 2, "date": "2024-03-19 12:00:00"},
-                    {"text": "3", "message_id": 3, "date": "2024-03-19 13:00:00"}
-                ]
-            }
-        }
+        messages = [
+            {"text": "1", "message_id": 1, "date": "2024-03-19 11:00:00"},
+            {"text": "2", "message_id": 2, "date": "2024-03-19 12:00:00"},
+            {"text": "3", "message_id": 3, "date": "2024-03-19 13:00:00"}
+        ]
         
-        summaries, _ = summarize_messages(grouped_messages, "fake_key", 2)
+        summary, _ = summarize_messages(messages, "Test Group", "fake_key", 2)
         
         # Check that genai was called with only 2 messages
         # full_prompt contains message text... difficult to check content without parsing
         # but we can check if the response includes the notice
-        assert "TRUNCATED" in summaries[0] or "latest 2 messages" in summaries[0]
+        assert "TRUNCATED" in summary or "latest 2 messages" in summary
