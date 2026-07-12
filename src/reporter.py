@@ -1,14 +1,12 @@
 import logging
 import os
-from src.db import get_latest_digest
 
 logger = logging.getLogger(__name__)
 
 def build_report(
     new_summaries: list[str], 
     grouped_messages: dict, 
-    groups_list: list[str], 
-    db_path: str
+    groups_list: list[str]
 ) -> str:
     """
     Pure function: Generates the final report text by combining new summaries and cached ones.
@@ -24,18 +22,8 @@ def build_report(
         printed_groups.add(gid)
         printed_groups.add(group_info["name"])
         
-    # 2. Cached Content for any other targets
-    for target in groups_list:
-        if target in printed_groups: continue
-        
-        cached_digest = get_latest_digest(db_path, target)
-        if cached_digest:
-            cached_text = f"[CACHED DIGEST - NO NEW MESSAGES]\n{cached_digest}"
-            digest_output += cached_text + "\n" + "-"*40 + "\n"
-            printed_groups.add(target)
-            
     if not printed_groups:
-        no_msg = "### Summary\n\n*No messages found and no previous digests exist.*\n"
+        no_msg = "### Summary\n\n*No messages found.*\n"
         digest_output += no_msg + "-"*40 + "\n"
         
     return digest_output

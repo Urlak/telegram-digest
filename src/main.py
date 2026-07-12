@@ -4,11 +4,10 @@ import os
 import re
 
 from src.config import setup_logging, load_config, AppConfig
-from src.db import init_db, mark_message_processed, save_latest_digest, cleanup_old_messages
 from src.telegram_client import get_client, fetch_target_messages, print_available_groups
 from src.summarizer import summarize_messages
 from src.logic import group_messages_by_id, format_messages_to_markdown
-from src.processor import filter_unprocessed_messages, collapse_consecutive_messages
+from src.processor import collapse_consecutive_messages
 from src.reporter import build_report, finalize_report
 
 logger = logging.getLogger(__name__)
@@ -22,9 +21,8 @@ async def run_pipeline(config: AppConfig) -> None:
     # 1. Initialize Logging (already done in main)
     logger.info("Starting Telegram Digest Extraction...")
     
-    # 2. Ensure Data folder exists and start SQLite
-    os.makedirs(os.path.dirname(config.db_path), exist_ok=True)
-    init_db(config.db_path)
+    # 2. Ensure Data folder exists (now only for session file or exports)
+    os.makedirs(os.path.dirname(config.session_path), exist_ok=True)
     
     # 3. Connect to Telegram
     try:
@@ -56,11 +54,11 @@ async def run_pipeline(config: AppConfig) -> None:
     )
     logger.info(f"Fetched {len(all_messages)} messages matching constraints.")
         
-    # 5. Filter for Only New Unprocessed Messages
-    new_messages = filter_unprocessed_messages(all_messages, config.db_path)
+    # 5. Process all messages directly
+    new_messages = all_messages
             
     if not new_messages:
-        logger.info("No new messages to process. Checking for cached digests...")
+        logger.info("No messages to process.")
     
     # 6. Group Messages by Group ID for Summarization
     grouped_messages = group_messages_by_id(all_messages)
@@ -95,12 +93,8 @@ async def run_pipeline(config: AppConfig) -> None:
         max_messages=config.max_llm_messages
     )
     
-    # Save the newly generated summaries into the digest cache
-    for gid, summary in zip(grouped_messages.keys(), new_summaries):
-        save_latest_digest(config.db_path, gid, grouped_messages[gid]["name"], summary)
-    
     # 8. Output Summaries and Metadata (Reporter)
-    data_dir = os.path.dirname(config.db_path)
+    data_dir = os.path.dirname(config.session_path)
     for gid, summary in zip(grouped_messages.keys(), new_summaries):
         gname = grouped_messages[gid]["name"]
         safe_name = re.sub(r'[^\w\s-]', '', gname).strip().replace(' ', '_')
@@ -121,27 +115,13 @@ async def run_pipeline(config: AppConfig) -> None:
     
     # Still build a combined report for the console output if multiple groups
     if len(new_summaries) > 1:
-        combined_output = build_report(new_summaries, grouped_messages, groups_list, config.db_path)
+        combined_output = build_report(new_summaries, grouped_messages, groups_list)
         print("\n" + "="*60)
         print("COMBINED TELEGRAM DIGEST (CONSOLE ONLY)")
         print(combined_output)
         print("="*60 + "\n")
         
-    # 9. Mark Messages as Processed and run basic maintenance
-    for msg in new_messages:
-        mark_message_processed(
-            config.db_path, 
-            msg["message_id"], 
-            msg["group_id"],
-            msg["group_name"], 
-            msg["sender_name"], 
-            msg["date"]
-        )
-    
-    # Cleanup old message IDs to keep DB small
-    cleanup_old_messages(config.db_path, days=30)
-        
-    logger.info("Script execution complete. Messages properly tracked.")
+    logger.info("Script execution complete.")
 
 async def main() -> None:
     setup_logging()

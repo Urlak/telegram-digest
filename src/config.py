@@ -18,7 +18,6 @@ class AppConfig:
     export_only: bool
     max_llm_messages: int
     max_fetch_limit: int
-    db_path: str
     session_path: str
 
 def load_config() -> AppConfig:
@@ -37,7 +36,6 @@ def load_config() -> AppConfig:
         export_only=os.getenv('EXPORT_ONLY', 'False').lower() == 'true',
         max_llm_messages=int(os.getenv('MAX_LLM_MESSAGES', '500')),
         max_fetch_limit=10000,
-        db_path=os.path.join(data_dir, 'digest.db'),
         session_path=os.path.join(data_dir, 'session')
     )
 
