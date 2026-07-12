@@ -80,9 +80,11 @@ async def fetch_target_messages(
             group_name = dialog.name
             unread = dialog.unread_count
             
+            is_fetching_unread = False
             if unread > 0:
                 fetch_limit = min(unread, limit_msgs)
                 will_ack = True
+                is_fetching_unread = True
             elif force_fetch_fallback:
                 fetch_limit = limit_msgs
                 will_ack = False
@@ -96,8 +98,8 @@ async def fetch_target_messages(
             messages_fetched = 0
             messages_skipped = 0
             async for message in client.iter_messages(dialog.entity, limit=fetch_limit):
-                # Only grab messages within our time horizon
-                if message.date and message.date < time_threshold:
+                # Only grab messages within our time horizon if we are not fetching unread messages
+                if not is_fetching_unread and message.date and message.date < time_threshold:
                     break
                     
                 # Merge message text and caption prior to cleaning
