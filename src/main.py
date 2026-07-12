@@ -31,7 +31,7 @@ async def _init_client(config: AppConfig) -> TelegramClient | None:
         logger.error(f"Failed to initialize Telegram client. Error: {e}")
         return None
 
-async def _run_interactive_setup(client: TelegramClient, display_limit: int = 15) -> tuple[str, bool]:
+async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25) -> tuple[str, bool]:
     """
     Interactive CLI to select a target group and determine unread fetching logic.
     Returns: (target_group_id_or_name, force_fetch_fallback)
@@ -42,21 +42,30 @@ async def _run_interactive_setup(client: TelegramClient, display_limit: int = 15
     
     dialogs: list[Dialog] = []
     
-    # Fetch dialogs dynamically
-    async for dialog in client.iter_dialogs():
+    # Fetch a larger pool to ensure unread groups are captured before sorting
+    async for dialog in client.iter_dialogs(limit=100):
         if dialog.is_group or dialog.is_channel:
             dialogs.append(dialog)
-            if len(dialogs) >= display_limit:
-                break
 
     if not dialogs:
         print("No groups found.")
         sys.exit(0)
 
+    # Sort logic: 
+    # 1. unread_count == 0 evaluates to False (0) if >0, True (1) if ==0.
+    #    False comes before True, pushing unreads to the top.
+    # 2. Alphabetical by name (case-insensitive).
+    dialogs.sort(key=lambda d: (d.unread_count == 0, str(d.name or "Unknown").lower()))
+    
+    # Apply the display limit AFTER sorting
+    dialogs = dialogs[:display_limit]
+
     # Display numbered list
     for idx, dialog in enumerate(dialogs, 1):
         name = dialog.name or "Unknown"
-        print(f"[{idx}] {name} (Unread: {dialog.unread_count})")
+        # Optional UX improvement: visual indicator for unread groups
+        indicator = "•" if dialog.unread_count > 0 else " "
+        print(f"[{idx:2}] {indicator} {name} (Unread: {dialog.unread_count})")
 
     print("-" * 50)
     
