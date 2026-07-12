@@ -53,12 +53,17 @@ async def fetch_target_messages(
     client: TelegramClient, 
     target_group: str, 
     limit_msgs: int = 100, 
-    hours_back: int = 24
+    hours_back: int = 24,
+    force_fetch_fallback: bool = False
 ) -> list[dict]:
     """
     Fetches messages from the target group within the specified time limit.
     Returns a list of dictionaries with message data.
     """
+    target_group = target_group.strip()
+    if not target_group:
+        return []
+
     logger.info(f"Fetching max {limit_msgs} msgs from past {hours_back} hours.")
     results = []
     
@@ -69,19 +74,28 @@ async def fetch_target_messages(
         # Iterate over all dialogs to find the target ones
         async for dialog in client.iter_dialogs():
             
-            target_group = target_group.strip()
-            if not target_group: continue
-            
             if dialog.name != target_group and str(dialog.id) != target_group:
                 continue
                 
             group_name = dialog.name
-            logger.info(f"Found target group: {group_name}. Fetching messages...")
+            unread = dialog.unread_count
+            
+            if unread > 0:
+                fetch_limit = min(unread, limit_msgs)
+                will_ack = True
+            elif force_fetch_fallback:
+                fetch_limit = limit_msgs
+                will_ack = False
+            else:
+                logger.info(f"Found target group: {group_name}. Unread count is 0. Skipping fetch (force_fetch_fallback is False).")
+                return []
+                
+            logger.info(f"Found target group: {group_name}. Unread: {unread}. Fetching up to {fetch_limit} messages. (Acknowledge: {will_ack})")
             
             # Fetch messages chronologically backwards
             messages_fetched = 0
             messages_skipped = 0
-            async for message in client.iter_messages(dialog.entity, limit=limit_msgs):
+            async for message in client.iter_messages(dialog.entity, limit=fetch_limit):
                 # Only grab messages within our time horizon
                 if message.date and message.date < time_threshold:
                     break
@@ -143,6 +157,11 @@ async def fetch_target_messages(
                 messages_fetched += 1
                 
             logger.info(f"Retrieved {messages_fetched} valid messages from '{group_name}' (skipped {messages_skipped} photo/URL-only).")
+            
+            if will_ack:
+                await client.send_read_acknowledge(dialog.entity)
+                logger.info(f"Acknowledged {unread} unread messages for '{group_name}'.")
+                
             break # Stop after finding the single target group
 
 
