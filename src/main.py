@@ -51,10 +51,7 @@ async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25
         print("No groups found.")
         sys.exit(0)
 
-    # Sort logic: 
-    # 1. unread_count == 0 evaluates to False (0) if >0, True (1) if ==0.
-    #    False comes before True, pushing unreads to the top.
-    # 2. Alphabetical by name (case-insensitive).
+    # Sort logic: Unreads first, then alphabetical
     dialogs.sort(key=lambda d: (d.unread_count == 0, str(d.name or "Unknown").lower()))
     
     # Apply the display limit AFTER sorting
@@ -63,13 +60,11 @@ async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25
     # Display numbered list
     for idx, dialog in enumerate(dialogs, 1):
         name = dialog.name or "Unknown"
-        # Optional UX improvement: visual indicator for unread groups
         indicator = "•" if dialog.unread_count > 0 else " "
         print(f"[{idx:2}] {indicator} {name} (Unread: {dialog.unread_count})")
 
     print("-" * 50)
     
-    # 1. Group Selection Loop
     selected_group = None
     while not selected_group:
         try:
@@ -82,15 +77,14 @@ async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25
         except ValueError:
             print("Please enter a valid number.")
 
-    # 2. Unread Logic Loop
     force_fetch_fallback = False
     while True:
         unread_choice = input("\nFetch unread messages ONLY? (y/n): ").strip().lower()
         if unread_choice in ['y', 'yes']:
-            force_fetch_fallback = False  # Strictly unreads; skips if 0
+            force_fetch_fallback = False
             break
         elif unread_choice in ['n', 'no']:
-            force_fetch_fallback = True   # Fall back to config limit if 0 unreads
+            force_fetch_fallback = True
             break
         else:
             print("Please enter 'y' or 'n'.")
@@ -120,11 +114,10 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
     if not client:
         return
 
-    # Determine execution parameters based on mode
     if is_auto_mode:
         logger.info("Running in AUTO mode. Using .env configuration.")
         target_group = config.target_group
-        force_fetch_fallback = True # Default behavior for automated runs
+        force_fetch_fallback = True 
         if not target_group:
             logger.error("TARGET_GROUP must be set in .env for --auto mode.")
             return
@@ -138,7 +131,6 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
 
     logger.info(f"Targeting group: {target_group}")
     
-    # Fetch messages using the updated parameters
     all_messages = await fetch_target_messages(
         client, 
         target_group, 
@@ -152,7 +144,6 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
         logger.info("No messages to process.")
         return
     
-    # Extract metadata
     group_name = all_messages[0]['group_name']
     group_id = all_messages[0]['group_id']
     
@@ -162,7 +153,6 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
         _export_messages(config, collapsed_messages, group_name, group_id)
         return
     
-    # Summarization
     summary, api_duration = summarize_messages(
         collapsed_messages, 
         group_name,
@@ -170,7 +160,6 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
         max_messages=config.max_llm_messages
     )
     
-    # Reporting
     data_dir = os.path.dirname(config.session_path)
     safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
     report_path = os.path.join(data_dir, f"digest_{safe_name}.md")
@@ -181,7 +170,6 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
     logger.info("Script execution complete.")
 
 async def main() -> None:
-    # Set up argument parsing
     parser = argparse.ArgumentParser(description="Telegram Group Summarizer")
     parser.add_argument(
         "--auto", 

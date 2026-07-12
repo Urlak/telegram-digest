@@ -6,23 +6,20 @@ from telethon import TelegramClient
 
 logger = logging.getLogger(__name__)
 
-# Matches bare URLs: http(s)/t.me/www links
 _URL_RE = re.compile(r'https?://\S+|www\.\S+|t\.me/\S+', re.IGNORECASE)
 
-MIN_TEXT_LEN = 10  # characters after cleaning; below this the message is skipped
-MAX_TEXT_LEN = 500  # characters sent to Gemini per message to cap token cost
+MIN_TEXT_LEN = 10
+MAX_TEXT_LEN = 500
 
 def _clean_text(text: str) -> str:
     """Uses centralized logic to collapse whitespace but KEEP URLs."""
     return clean_text_basic(text)
-
 
 async def get_client(session_name: str, api_id: int, api_hash: str, phone: str | None = None) -> TelegramClient:
     """Initializes and returns the Telethon TelegramClient."""
     logger.info(f"Connecting to Telegram with session file: {session_name}.session")
     client = TelegramClient(session_name, api_id, api_hash)
     
-    # Automatically handles console input for auth code if needed
     if phone:
         await client.start(phone=phone)
     else:
@@ -56,13 +53,11 @@ async def _find_target_dialog(client: TelegramClient, target_group: str):
             return dialog
     return None
 
-
 async def _parse_message(message, group_id: str, group_name: str) -> dict | None:
     """
     Parses a single Telethon message, applying cleaning and validation filters.
     Returns the message dict if valid, or None if skipped/invalid.
     """
-    # Merge message text and caption prior to cleaning
     raw_text = message.text or ''
     caption = getattr(message, 'caption', '') or ''
     if caption and caption not in raw_text:
@@ -75,18 +70,14 @@ async def _parse_message(message, group_id: str, group_name: str) -> dict | None
     has_caption = bool(caption)
     is_reply = bool(message.reply_to and hasattr(message.reply_to, 'reply_to_msg_id'))
     
-    # Skip messages shorter than MIN_TEXT_LEN only if not a reply and no caption
     if len(cleaned) < MIN_TEXT_LEN and not is_reply and not has_caption:
         return None
     
-    # Truncate long messages to cap token cost
     if len(cleaned) > MAX_TEXT_LEN:
         cleaned = cleaned[:MAX_TEXT_LEN] + '…'
         
-    # Extract sender info explicitly
     sender = await message.get_sender()
     
-    # Filter out bots
     if sender and getattr(sender, 'bot', False):
         return None
         
@@ -111,7 +102,6 @@ async def _parse_message(message, group_id: str, group_name: str) -> dict | None
         "text": cleaned
     }
 
-
 async def fetch_target_messages(
     client: TelegramClient, 
     target_group: str, 
@@ -127,8 +117,6 @@ async def fetch_target_messages(
     if not target_group:
         return []
 
-    logger.info(f"Fetching max {limit_msgs} msgs from past {hours_back} hours.")
-    
     dialog = await _find_target_dialog(client, target_group)
     if not dialog:
         logger.warning(f"Target group '{target_group}' not found.")
@@ -137,26 +125,28 @@ async def fetch_target_messages(
     group_name = dialog.name
     unread = dialog.unread_count
     
+    # Evaluate execution mode dynamically before logging
     is_fetching_unread = False
     if unread > 0:
         fetch_limit = min(unread, limit_msgs)
         will_ack = True
         is_fetching_unread = True
+        logger.info(f"[{group_name}] Unread mode: Fetching {fetch_limit} unread messages (Cap: {limit_msgs}).")
     elif force_fetch_fallback:
         fetch_limit = limit_msgs
         will_ack = False
+        logger.info(f"[{group_name}] Fallback mode: 0 unreads. Fetching up to {limit_msgs} msgs from past {hours_back} hours.")
     else:
-        logger.info(f"Found target group: {group_name}. Unread count is 0. Skipping fetch (force_fetch_fallback is False).")
+        logger.info(f"[{group_name}] Auto mode: 0 unreads. Skipping fetch (Fallback disabled).")
         return []
         
-    logger.info(f"Found target group: {group_name}. Unread: {unread}. Fetching up to {fetch_limit} messages. (Acknowledge: {will_ack})")
-    
     time_threshold = datetime.now(timezone.utc) - timedelta(hours=hours_back)
     results = []
     messages_skipped = 0
     
     try:
         async for message in client.iter_messages(dialog.entity, limit=fetch_limit):
+            # Enforce time threshold ONLY in fallback mode
             if not is_fetching_unread and message.date and message.date < time_threshold:
                 break
                 
@@ -175,6 +165,5 @@ async def fetch_target_messages(
     except Exception as e:
         logger.error(f"Error fetching messages: {e}")
         
-    # Reverse the results to return them in chronological (oldest-first) order
     results.reverse()
     return results
