@@ -21,7 +21,10 @@ def test_summarize_messages_with_data():
         grouped_messages = {
             "123": {
                 "name": "Test Group",
-                "messages": [{"text": "Hello", "message_id": 1, "date": "2024-03-19 12:00:00"}]
+                "messages": [
+                    {"text": "Hello", "message_id": 1, "sender_name": "Alice", "date": "2024-03-19 12:00:00", "reply_to_id": None},
+                    {"text": "Hi Alice", "message_id": 2, "sender_name": "Bob", "date": "2024-03-19 12:01:00", "reply_to_id": 1}
+                ]
             }
         }
         
@@ -31,6 +34,15 @@ def test_summarize_messages_with_data():
         assert "This is a summary." in summaries[0]
         assert "Test Group" in summaries[0]
         assert duration >= 0.0
+        
+        # Verify call content and format
+        call_args = mock_instance.models.generate_content.call_args
+        assert call_args is not None
+        full_prompt = call_args[1]["contents"]
+        
+        # Assert metadata format is correct
+        assert "[Msg: 1] Alice: Hello" in full_prompt
+        assert "[Msg: 2] Bob (In reply to 1): Hi Alice" in full_prompt
 
 def test_summarize_messages_truncation():
     # Mock genai.Client

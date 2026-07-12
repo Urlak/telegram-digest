@@ -44,7 +44,34 @@ def format_messages_to_markdown(grouped_messages: dict) -> str:
     return md_content
 
 def clean_text_basic(text: str) -> str:
-    """Collapses whitespace but KEEPS URLs."""
+    """
+    Removes URLs (links) and collapses whitespace.
+    Collapses horizontal spaces into a single space.
+    Collapses consecutive newlines into a maximum of a double newline (\n\n) to preserve paragraphs.
+    """
     if not text:
         return ""
-    return re.sub(r'\s+', ' ', text).strip()
+    
+    # Normalize line endings and remove URLs
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    text = re.compile(r'https?://\S+|www\.\S+|t\.me/\S+', re.IGNORECASE).sub('', text)
+    
+    # Collapse horizontal spaces on each line
+    lines = []
+    for line in text.split('\n'):
+        clean_line = re.sub(r'[^\S\r\n]+', ' ', line).strip()
+        lines.append(clean_line)
+        
+    # Collapse consecutive empty lines to a maximum of one empty line (results in \n\n)
+    result_lines = []
+    consecutive_empty = 0
+    for line in lines:
+        if line == '':
+            consecutive_empty += 1
+            if consecutive_empty <= 1:
+                result_lines.append(line)
+        else:
+            consecutive_empty = 0
+            result_lines.append(line)
+            
+    return '\n'.join(result_lines).strip()

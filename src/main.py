@@ -8,7 +8,7 @@ from src.db import init_db, mark_message_processed, save_latest_digest, cleanup_
 from src.telegram_client import get_client, fetch_target_messages, print_available_groups
 from src.summarizer import summarize_messages
 from src.logic import group_messages_by_id, format_messages_to_markdown
-from src.processor import filter_unprocessed_messages
+from src.processor import filter_unprocessed_messages, collapse_consecutive_messages
 from src.reporter import build_report, finalize_report
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,10 @@ async def run_pipeline(config: AppConfig) -> None:
     # 6. Group Messages by Group ID for Summarization
     grouped_messages = group_messages_by_id(all_messages)
     logger.info(f"Messages grouped into {len(grouped_messages)} unique groups.")
+    
+    # Collapse consecutive messages within each group
+    for gid in list(grouped_messages.keys()):
+        grouped_messages[gid]["messages"] = collapse_consecutive_messages(grouped_messages[gid]["messages"])
     
     # 6.5 Special EXPORT_ONLY Mode: Save clean messages to Markdown (.md) and exit
     if config.export_only:

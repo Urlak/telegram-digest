@@ -94,10 +94,24 @@ async def fetch_target_messages(
                 if message.date and message.date < time_threshold:
                     break
                     
-                # Clean and filter: skip photo-only (no text) and URL/noise-only messages
+                # Merge message text and caption prior to cleaning
                 raw_text = message.text or ''
+                caption = getattr(message, 'caption', '') or ''
+                if caption and caption not in raw_text:
+                    raw_text = f"{raw_text}\n{caption}".strip()
+                
                 cleaned = _clean_text(raw_text)
-                if len(cleaned) < MIN_TEXT_LEN:
+                
+                # Check for replies and captions for smart preservation
+                has_caption = bool(caption)
+                is_reply = bool(message.reply_to and hasattr(message.reply_to, 'reply_to_msg_id'))
+                
+                if not cleaned:
+                    messages_skipped += 1
+                    continue
+                    
+                # Skip messages shorter than MIN_TEXT_LEN only if not a reply and no caption
+                if len(cleaned) < MIN_TEXT_LEN and not is_reply and not has_caption:
                     messages_skipped += 1
                     continue
                 
@@ -142,4 +156,6 @@ async def fetch_target_messages(
     except Exception as e:
         logger.error(f"Error fetching messages: {e}")
         
+    # Reverse the results to return them in chronological (oldest-first) order
+    results.reverse()
     return results
