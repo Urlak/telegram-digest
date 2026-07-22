@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 _URL_RE = re.compile(r'https?://\S+|www\.\S+|t\.me/\S+', re.IGNORECASE)
 
 MIN_TEXT_LEN = 10
-MAX_TEXT_LEN = 500
+MAX_TEXT_LEN = 4000
 
 def _clean_text(text: str) -> str:
     """Uses centralized logic to collapse whitespace but KEEP URLs."""
@@ -76,12 +76,15 @@ async def _parse_message(message, group_id: str, group_name: str) -> dict | None
     if len(cleaned) > MAX_TEXT_LEN:
         cleaned = cleaned[:MAX_TEXT_LEN] + '…'
         
-    sender = await message.get_sender()
-    
+    sender = getattr(message, 'sender', None)
+    if not sender and hasattr(message, 'sender_id') and getattr(message, 'sender_id', None) is not None:
+        sender_name = f"User_{message.sender_id}"
+    else:
+        sender_name = "Channel Content"
+
     if sender and getattr(sender, 'bot', False):
         return None
-        
-    sender_name = "Channel Content"
+    
     if sender:
         first = getattr(sender, 'first_name', '') or ''
         last = getattr(sender, 'last_name', '') or ''
@@ -102,13 +105,14 @@ async def _parse_message(message, group_id: str, group_name: str) -> dict | None
         "text": cleaned
     }
 
-async def mark_target_messages_read(client: TelegramClient, target_group: str) -> bool:
+async def mark_target_messages_read(client: TelegramClient, target_group: str, dialog=None) -> bool:
     """Marks the target dialog as read after successful processing."""
     target_group = target_group.strip()
     if not target_group:
         return False
 
-    dialog = await _find_target_dialog(client, target_group)
+    if dialog is None:
+        dialog = await _find_target_dialog(client, target_group)
     if not dialog:
         logger.warning(f"Target group '{target_group}' not found for read acknowledgement.")
         return False
@@ -123,7 +127,8 @@ async def fetch_target_messages(
     target_group: str, 
     limit_msgs: int = 100, 
     hours_back: int = 24,
-    force_fetch_fallback: bool = False
+    force_fetch_fallback: bool = False,
+    dialog=None,
 ) -> list[dict]:
     """
     Fetches messages from the target group within the specified time limit.
@@ -133,7 +138,8 @@ async def fetch_target_messages(
     if not target_group:
         return []
 
-    dialog = await _find_target_dialog(client, target_group)
+    if dialog is None:
+        dialog = await _find_target_dialog(client, target_group)
     if not dialog:
         logger.warning(f"Target group '{target_group}' not found.")
         return []
@@ -160,8 +166,8 @@ async def fetch_target_messages(
     
     try:
         async for message in client.iter_messages(dialog.entity, limit=fetch_limit):
-            # Enforce time threshold ONLY in fallback mode
-            if not is_fetching_unread and message.date and message.date < time_threshold:
+            if message.date and message.date < time_threshold:
+                logger.info("Reached time limit threshold. Stopping fetch.")
                 break
                 
             parsed = await _parse_message(message, str(dialog.id), group_name)

@@ -124,6 +124,21 @@ async def test_pipeline_marks_messages_read_after_successful_processing():
 
 
 @pytest.mark.asyncio
+async def test_pipeline_disconnects_client_on_failure():
+    """The Telegram client should always disconnect when processing errors out."""
+    config = make_config()
+    mock_client = MagicMock()
+    mock_client.disconnect = AsyncMock()
+    with (
+        patch("src.main._init_client", new_callable=AsyncMock, return_value=mock_client),
+        patch("src.main.fetch_target_messages", new_callable=AsyncMock, side_effect=RuntimeError("boom")),
+    ):
+        with pytest.raises(RuntimeError, match="boom"):
+            await run_pipeline(config, is_auto_mode=True)
+        mock_client.disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_auto_mode_export_only_skips_summarizer():
     """export_only=True should call _export_messages and skip summarization."""
     config = make_config(export_only=True)

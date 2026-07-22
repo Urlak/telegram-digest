@@ -18,8 +18,8 @@ def test_clean_text_basic():
     text = "  Hello    world! \n Visit https://google.com   for more.  "
     cleaned = clean_text_basic(text)
     
-    # Check that URL is removed and horizontal space is collapsed
-    assert cleaned == "Hello world!\nVisit for more."
+    # Check that URLs are preserved while whitespace is collapsed
+    assert cleaned == "Hello world!\nVisit https://google.com for more."
     
     # Check multiple newlines are collapsed to maximum double newlines (\n\n)
     text_with_newlines = "Line 1\n\n\n\nLine 2\n\nLine 3"
@@ -75,3 +75,4 @@ def test_collapse_consecutive_messages():
     # Check Alice's late block (106)
     assert collapsed[4]["message_id"] == 106
     assert collapsed[4]["text"] == "Long time no see"
+    assert collapsed[0]["date"] == "2026-03-18 10:03"

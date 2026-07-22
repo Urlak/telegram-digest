@@ -54,6 +54,7 @@ def collapse_consecutive_messages(messages: list[dict], max_gap_minutes: float =
             # Merge! Separate text with a double newline
             current["text"] += "\n\n" + msg["text"]
             current["merged_ids"].append(msg_id)
+            current["date"] = msg["date"]
             # Map this message's ID to the primary message ID
             msg_id_mapping[msg_id] = current["message_id"]
         else:

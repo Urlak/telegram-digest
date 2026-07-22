@@ -79,10 +79,40 @@ def summarize_messages(
             }
         )
         duration = time.time() - start_time
+
+        summary_text = _extract_response_text(response)
+        if not summary_text:
+            logger.warning(f"LLM generated empty response or was blocked for group: {group_name}")
+            return f"### Summary for {group_name}\n\n*Summary generation was blocked or returned no content.*\n", duration
         
         # Add a clear Markdown header pointing out which group this is for
-        group_summary = f"### Summary for {group_name}\n\n{notice}{response.text.strip()}\n"
+        group_summary = f"### Summary for {group_name}\n\n{notice}{summary_text.strip()}\n"
         return group_summary, duration
     except Exception as e:
         logger.error(f"Error calling Gemini API for group {group_name}: {e}")
         return f"### Summary for {group_name}\n\n*Error summarizing messages: {e}*\n", 0.0
+
+
+def _extract_response_text(response) -> str | None:
+    """Safely extracts text from Gemini responses, supporting both old and new shapes."""
+    direct_text = getattr(response, "text", None)
+    if isinstance(direct_text, str) and direct_text.strip():
+        return direct_text.strip()
+
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return None
+
+    first_candidate = candidates[0]
+    content = getattr(first_candidate, "content", None)
+    parts = getattr(content, "parts", None) or []
+    if not parts:
+        return None
+
+    texts = []
+    for part in parts:
+        part_text = getattr(part, "text", None)
+        if isinstance(part_text, str) and part_text.strip():
+            texts.append(part_text.strip())
+
+    return "\n".join(texts).strip() if texts else None

@@ -24,16 +24,15 @@ def format_messages_to_markdown(messages: list[dict], group_name: str, group_id:
 
 def clean_text_basic(text: str) -> str:
     """
-    Removes URLs (links) and collapses whitespace.
+    Collapses whitespace while preserving URLs and other content.
     Collapses horizontal spaces into a single space.
     Collapses consecutive newlines into a maximum of a double newline (\n\n) to preserve paragraphs.
     """
     if not text:
         return ""
     
-    # Normalize line endings and remove URLs
+    # Normalize line endings while preserving links as-is
     text = text.replace('\r\n', '\n').replace('\r', '\n')
-    text = re.compile(r'https?://\S+|www\.\S+|t\.me/\S+', re.IGNORECASE).sub('', text)
     
     # Collapse horizontal spaces on each line
     lines = []

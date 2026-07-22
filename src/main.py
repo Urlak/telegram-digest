@@ -31,10 +31,10 @@ async def _init_client(config: AppConfig) -> TelegramClient | None:
         logger.error(f"Failed to initialize Telegram client. Error: {e}")
         return None
 
-async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25) -> tuple[str, bool]:
+async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25) -> tuple[str, bool, Dialog | None]:
     """
     Interactive CLI to select a target group and determine unread fetching logic.
-    Returns: (target_group_id_or_name, force_fetch_fallback)
+    Returns: (target_group_id_or_name, force_fetch_fallback, selected_dialog)
     """
     print("\n" + "="*50)
     print(" FETCHING RECENT GROUPS...")
@@ -66,12 +66,14 @@ async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25
     print("-" * 50)
     
     selected_group = None
+    selected_dialog = None
     while not selected_group:
         try:
             choice = input(f"Select a group [1-{len(dialogs)}]: ").strip()
             idx = int(choice) - 1
             if 0 <= idx < len(dialogs):
-                selected_group = str(dialogs[idx].id)
+                selected_dialog = dialogs[idx]
+                selected_group = str(selected_dialog.id)
             else:
                 print("Invalid number. Try again.")
         except ValueError:
@@ -89,7 +91,7 @@ async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25
         else:
             print("Please enter 'y' or 'n'.")
 
-    return selected_group, force_fetch_fallback
+    return selected_group, force_fetch_fallback, selected_dialog
 
 def _export_messages(config: AppConfig, messages: list[dict], group_name: str, group_id: str) -> None:
     """Saves clean messages to a Markdown file in export-only mode."""
@@ -114,63 +116,83 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
     if not client:
         return
 
-    if is_auto_mode:
-        logger.info("Running in AUTO mode. Using .env configuration.")
-        target_group = config.target_group
-        force_fetch_fallback = True 
-        if not target_group:
-            logger.error("TARGET_GROUP must be set in .env for --auto mode.")
-            return
-    else:
-        logger.info("Running in INTERACTIVE mode.")
-        target_group, force_fetch_fallback = await _run_interactive_setup(client)
+    target_dialog = None
+    try:
+        if is_auto_mode:
+            logger.info("Running in AUTO mode. Using .env configuration.")
+            target_group = config.target_group
+            force_fetch_fallback = True 
+            if not target_group:
+                logger.error("TARGET_GROUP must be set in .env for --auto mode.")
+                return
+        else:
+            logger.info("Running in INTERACTIVE mode.")
+            target_group, force_fetch_fallback, target_dialog = await _run_interactive_setup(client)
 
-    fetch_limit = min(config.message_limit, config.max_fetch_limit)
-    if fetch_limit < config.message_limit:
-        logger.warning(f"MESSAGE_LIMIT {config.message_limit} exceeds safety cap. Using {config.max_fetch_limit} instead.")
+        fetch_limit = min(config.message_limit, config.max_fetch_limit)
+        if fetch_limit < config.message_limit:
+            logger.warning(f"MESSAGE_LIMIT {config.message_limit} exceeds safety cap. Using {config.max_fetch_limit} instead.")
 
-    logger.info(f"Targeting group: {target_group}")
-    
-    all_messages = await fetch_target_messages(
-        client, 
-        target_group, 
-        limit_msgs=fetch_limit, 
-        hours_back=config.hours_back,
-        force_fetch_fallback=force_fetch_fallback
-    )
-    
-    logger.info(f"Fetched {len(all_messages)} messages matching constraints.")
-    if not all_messages:
-        logger.info("No messages to process.")
-        return
-    
-    group_name = all_messages[0]['group_name']
-    group_id = all_messages[0]['group_id']
-    
-    collapsed_messages = collapse_consecutive_messages(all_messages)
-    
-    if config.export_only:
-        _export_messages(config, collapsed_messages, group_name, group_id)
-        await mark_target_messages_read(client, target_group)
-        logger.info("Script execution complete.")
-        return
-    
-    summary, api_duration = summarize_messages(
-        collapsed_messages, 
-        group_name,
-        api_key=config.gemini_api_key, 
-        max_messages=config.max_llm_messages
-    )
-    
-    data_dir = os.path.dirname(config.session_path)
-    safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
-    report_path = os.path.join(data_dir, f"digest_{safe_name}.md")
-    
-    report_output = build_report(summary, group_name)
-    finalize_report(report_output, all_messages, config.hours_back, api_duration, report_path)
-    await mark_target_messages_read(client, target_group)
+        logger.info(f"Targeting group: {target_group}")
         
-    logger.info("Script execution complete.")
+        all_messages = await fetch_target_messages(
+            client, 
+            target_group, 
+            limit_msgs=fetch_limit, 
+            hours_back=config.hours_back,
+            force_fetch_fallback=force_fetch_fallback,
+            dialog=target_dialog,
+        )
+        
+        logger.info(f"Fetched {len(all_messages)} messages matching constraints.")
+        if not all_messages:
+            logger.info("No messages to process.")
+            return
+        
+        group_name = all_messages[0]['group_name']
+        group_id = all_messages[0]['group_id']
+        
+        collapsed_messages = collapse_consecutive_messages(all_messages)
+        
+        if config.export_only:
+            _export_messages(config, collapsed_messages, group_name, group_id)
+            if target_dialog is None:
+                await mark_target_messages_read(client, target_group)
+            else:
+                await mark_target_messages_read(client, target_group, dialog=target_dialog)
+            logger.info("Script execution complete.")
+            return
+        
+        summary, api_duration = summarize_messages(
+            collapsed_messages, 
+            group_name,
+            api_key=config.gemini_api_key, 
+            max_messages=config.max_llm_messages
+        )
+        
+        data_dir = os.path.dirname(config.session_path)
+        safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
+        report_path = os.path.join(data_dir, f"digest_{safe_name}.md")
+        
+        report_output = build_report(summary, group_name)
+        finalize_report(report_output, all_messages, config.hours_back, api_duration, report_path)
+        if target_dialog is None:
+            await mark_target_messages_read(client, target_group)
+        else:
+            await mark_target_messages_read(client, target_group, dialog=target_dialog)
+            
+        logger.info("Script execution complete.")
+    finally:
+        try:
+            disconnect = getattr(client, "disconnect", None)
+            if disconnect is None:
+                return
+            result = disconnect()
+            if hasattr(result, "__await__"):
+                await result
+            logger.info("Telegram client disconnected.")
+        except Exception as exc:
+            logger.warning("Failed to disconnect Telegram client cleanly: %s", exc)
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Telegram Group Summarizer")
