@@ -102,6 +102,22 @@ async def _parse_message(message, group_id: str, group_name: str) -> dict | None
         "text": cleaned
     }
 
+async def mark_target_messages_read(client: TelegramClient, target_group: str) -> bool:
+    """Marks the target dialog as read after successful processing."""
+    target_group = target_group.strip()
+    if not target_group:
+        return False
+
+    dialog = await _find_target_dialog(client, target_group)
+    if not dialog:
+        logger.warning(f"Target group '{target_group}' not found for read acknowledgement.")
+        return False
+
+    await client.send_read_acknowledge(dialog.entity)
+    logger.info(f"Acknowledged messages for '{dialog.name or target_group}'.")
+    return True
+
+
 async def fetch_target_messages(
     client: TelegramClient, 
     target_group: str, 
@@ -129,12 +145,10 @@ async def fetch_target_messages(
     is_fetching_unread = False
     if unread > 0:
         fetch_limit = min(unread, limit_msgs)
-        will_ack = True
         is_fetching_unread = True
         logger.info(f"[{group_name}] Unread mode: Fetching {fetch_limit} unread messages (Cap: {limit_msgs}).")
     elif force_fetch_fallback:
         fetch_limit = limit_msgs
-        will_ack = False
         logger.info(f"[{group_name}] Fallback mode: 0 unreads. Fetching up to {limit_msgs} msgs from past {hours_back} hours.")
     else:
         logger.info(f"[{group_name}] Auto mode: 0 unreads. Skipping fetch (Fallback disabled).")
@@ -157,10 +171,6 @@ async def fetch_target_messages(
                 messages_skipped += 1
                 
         logger.info(f"Retrieved {len(results)} valid messages from '{group_name}' (skipped {messages_skipped} photo/URL-only/bot).")
-        
-        if will_ack:
-            await client.send_read_acknowledge(dialog.entity)
-            logger.info(f"Acknowledged {unread} unread messages for '{group_name}'.")
             
     except Exception as e:
         logger.error(f"Error fetching messages: {e}")

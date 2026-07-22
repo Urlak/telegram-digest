@@ -89,6 +89,41 @@ async def test_auto_mode_full_happy_path():
 
 
 @pytest.mark.asyncio
+async def test_pipeline_does_not_mark_messages_read_when_summarization_fails():
+    """A failed summarization should not acknowledge the dialog yet."""
+    config = make_config()
+    mock_client = MagicMock()
+    with (
+        patch("src.main._init_client", new_callable=AsyncMock, return_value=mock_client),
+        patch("src.main.fetch_target_messages", new_callable=AsyncMock, return_value=SAMPLE_MESSAGES),
+        patch("src.main.collapse_consecutive_messages", return_value=SAMPLE_MESSAGES),
+        patch("src.main.summarize_messages", side_effect=RuntimeError("boom")),
+        patch("src.main.mark_target_messages_read", new_callable=AsyncMock) as mock_ack,
+    ):
+        with pytest.raises(RuntimeError, match="boom"):
+            await run_pipeline(config, is_auto_mode=True)
+        mock_ack.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_marks_messages_read_after_successful_processing():
+    """Successful processing should acknowledge only after the pipeline completes."""
+    config = make_config()
+    mock_client = MagicMock()
+    with (
+        patch("src.main._init_client", new_callable=AsyncMock, return_value=mock_client),
+        patch("src.main.fetch_target_messages", new_callable=AsyncMock, return_value=SAMPLE_MESSAGES),
+        patch("src.main.collapse_consecutive_messages", return_value=SAMPLE_MESSAGES),
+        patch("src.main.summarize_messages", return_value=("## Summary", 1.5)),
+        patch("src.main.build_report", return_value="report text"),
+        patch("src.main.finalize_report"),
+        patch("src.main.mark_target_messages_read", new_callable=AsyncMock) as mock_ack,
+    ):
+        await run_pipeline(config, is_auto_mode=True)
+        mock_ack.assert_awaited_once_with(mock_client, "test_group")
+
+
+@pytest.mark.asyncio
 async def test_auto_mode_export_only_skips_summarizer():
     """export_only=True should call _export_messages and skip summarization."""
     config = make_config(export_only=True)

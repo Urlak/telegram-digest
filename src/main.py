@@ -9,7 +9,7 @@ from telethon import TelegramClient
 from telethon.tl.custom.dialog import Dialog
 
 from src.config import setup_logging, load_config, AppConfig
-from src.telegram_client import get_client, fetch_target_messages
+from src.telegram_client import get_client, fetch_target_messages, mark_target_messages_read
 from src.summarizer import summarize_messages
 from src.logic import format_messages_to_markdown
 from src.processor import collapse_consecutive_messages
@@ -151,6 +151,8 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
     
     if config.export_only:
         _export_messages(config, collapsed_messages, group_name, group_id)
+        await mark_target_messages_read(client, target_group)
+        logger.info("Script execution complete.")
         return
     
     summary, api_duration = summarize_messages(
@@ -166,6 +168,7 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
     
     report_output = build_report(summary, group_name)
     finalize_report(report_output, all_messages, config.hours_back, api_duration, report_path)
+    await mark_target_messages_read(client, target_group)
         
     logger.info("Script execution complete.")
 
