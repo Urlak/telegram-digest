@@ -34,29 +34,22 @@ def create_bot(config: AppConfig, telethon_client: TelegramClient) -> tuple[Bot,
     bot = Bot(token=config.tg_bot_token)
     dp = Dispatcher()
 
-    @dp.message(Command(commands=["start", "help"]))
-    async def cmd_start(message: Message):
-        await message.answer(
-            "Welcome to Telegram Digest Bot!\n"
-            "Use /groups or /digest to list available groups and generate summaries."
-        )
-
-    @dp.message(Command(commands=["groups", "digest"]))
-    async def cmd_groups(message: Message):
+    @dp.message(Command(commands=["start", "help", "groups", "digest"]))
+    async def cmd_main(message: Message):
         dialogs = await get_available_dialogs(telethon_client)
+        unread_dialogs = [d for d in dialogs if d.get("unread_count", 0) > 0]
         
-        if not dialogs:
-            await message.answer("No groups found.")
+        if not unread_dialogs:
+            await message.answer("There are no unread messages in your groups.")
             return
 
         keyboard = []
-        for dialog in dialogs[:50]: # limit to 50 for inline keyboard safety
-            indicator = "•" if dialog["unread_count"] > 0 else ""
-            btn_text = f"{indicator} {dialog['name']} ({dialog['unread_count']})"
+        for dialog in unread_dialogs[:50]: # limit to 50 for inline keyboard safety
+            btn_text = f"• {dialog['name']} ({dialog['unread_count']} unread)"
             keyboard.append([InlineKeyboardButton(text=btn_text, callback_data=f"digest:{dialog['id']}")])
             
         markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-        await message.answer("Select a group to summarize:", reply_markup=markup)
+        await message.answer("Select a group with unread messages to summarize:", reply_markup=markup)
 
     @dp.callback_query(F.data.startswith("digest:"))
     async def process_digest_callback(query: CallbackQuery):
