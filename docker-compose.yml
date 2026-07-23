@@ -1,13 +1,12 @@
 version: '3.8'
-
 services:
   telegram-digest:
     build: .
     container_name: telegram-digest
     restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
     volumes:
-      # Mount the configuration .env file
-      - ./.env:/app/.env
-      # Persist SQLite Database & Telegram Authentication Session 
-      # back to the host machine cleanly
       - ./data:/app/data

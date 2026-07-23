@@ -11,6 +11,7 @@ class AppConfig:
     tg_api_id: int
     tg_api_hash: str
     tg_phone_number: str | None
+    tg_bot_token: str
     gemini_api_key: str
     target_group: str
     message_limit: int
@@ -29,6 +30,7 @@ def load_config() -> AppConfig:
         tg_api_id=int(os.getenv("TG_API_ID", "0")),
         tg_api_hash=os.getenv("TG_API_HASH", ""),
         tg_phone_number=os.getenv("TG_PHONE_NUMBER"),
+        tg_bot_token=os.getenv("TG_BOT_TOKEN", ""),
         gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
         target_group=os.getenv('TARGET_GROUP', '').strip(),
         message_limit=min(int(os.getenv('MESSAGE_LIMIT', '100')), 10000),

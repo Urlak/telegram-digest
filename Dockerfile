@@ -1,22 +1,10 @@
-# Use official Python 3.12 slim image for a smaller footprint
-FROM python:3.12-slim
-
-# Set working directory inside the container
+FROM python:3.11-slim
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
-
-# Do not write .pyc files & do not buffer stdout (better for logging)
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# Install project dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy source code
-COPY src /app/src/
-
-# We don't copy the data directory or .env file here 
-# because they will be mounted globally safely via docker-compose
-
-# The default command to start the bot
-CMD ["python", "-m", "src.main"]
+COPY . .
+RUN mkdir -p /app/data
+EXPOSE 8000
+CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]

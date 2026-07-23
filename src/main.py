@@ -2,18 +2,14 @@ import argparse
 import asyncio
 import logging
 import os
-import re
 import sys
 
 from telethon import TelegramClient
 from telethon.tl.custom.dialog import Dialog
 
 from src.config import setup_logging, load_config, AppConfig
-from src.telegram_client import get_client, fetch_target_messages, mark_target_messages_read
-from src.summarizer import summarize_messages
-from src.logic import format_messages_to_markdown
-from src.processor import collapse_consecutive_messages
-from src.reporter import build_report, finalize_report
+from src.telegram_client import get_client
+from src.service import execute_digest_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -93,21 +89,6 @@ async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25
 
     return selected_group, force_fetch_fallback, selected_dialog
 
-def _export_messages(config: AppConfig, messages: list[dict], group_name: str, group_id: str) -> None:
-    """Saves clean messages to a Markdown file in export-only mode."""
-    data_dir = os.path.dirname(config.session_path)
-    safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
-    filename = f"clean_messages_{safe_name}.md"
-    md_path = os.path.join(data_dir, filename)
-    
-    md_content = format_messages_to_markdown(messages, group_name, group_id)
-    
-    with open(md_path, 'w', encoding='utf-8') as f:
-        f.write(md_content)
-        
-    logger.info(f"EXPORT_ONLY is ON. Saved '{group_name}' to {md_path}.")
-    print(f"[EXPORT MODE] Saved messages from '{group_name}' to {filename}.")
-
 async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
     """Main orchestration logic for the Telegram Digest pipeline."""
     logger.info("Starting Telegram Digest Extraction...")
@@ -129,57 +110,27 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
             logger.info("Running in INTERACTIVE mode.")
             target_group, force_fetch_fallback, target_dialog = await _run_interactive_setup(client)
 
-        fetch_limit = min(config.message_limit, config.max_fetch_limit)
-        if fetch_limit < config.message_limit:
-            logger.warning(f"MESSAGE_LIMIT {config.message_limit} exceeds safety cap. Using {config.max_fetch_limit} instead.")
-
         logger.info(f"Targeting group: {target_group}")
         
-        all_messages = await fetch_target_messages(
-            client, 
-            target_group, 
-            limit_msgs=fetch_limit, 
+        result = await execute_digest_pipeline(
+            client=client,
+            config=config,
+            target_group=target_group,
+            unread_only=not force_fetch_fallback,
             hours_back=config.hours_back,
-            force_fetch_fallback=force_fetch_fallback,
-            dialog=target_dialog,
+            limit_msgs=config.message_limit,
+            export_only=config.export_only,
+            target_dialog=target_dialog
         )
         
-        logger.info(f"Fetched {len(all_messages)} messages matching constraints.")
-        if not all_messages:
+        if result["status"] == "success":
+            logger.info(f"Success! {result['message_count']} messages processed.")
+            if result['report_path']:
+                logger.info(f"Report saved to {result['report_path']}")
+        elif result["status"] == "no_messages":
             logger.info("No messages to process.")
-            return
-        
-        group_name = all_messages[0]['group_name']
-        group_id = all_messages[0]['group_id']
-        
-        collapsed_messages = collapse_consecutive_messages(all_messages)
-        
-        if config.export_only:
-            _export_messages(config, collapsed_messages, group_name, group_id)
-            if target_dialog is None:
-                await mark_target_messages_read(client, target_group)
-            else:
-                await mark_target_messages_read(client, target_group, dialog=target_dialog)
-            logger.info("Script execution complete.")
-            return
-        
-        summary, api_duration = summarize_messages(
-            collapsed_messages, 
-            group_name,
-            api_key=config.gemini_api_key, 
-            max_messages=config.max_llm_messages
-        )
-        
-        data_dir = os.path.dirname(config.session_path)
-        safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
-        report_path = os.path.join(data_dir, f"digest_{safe_name}.md")
-        
-        report_output = build_report(summary, group_name)
-        finalize_report(report_output, all_messages, config.hours_back, api_duration, report_path)
-        if target_dialog is None:
-            await mark_target_messages_read(client, target_group)
         else:
-            await mark_target_messages_read(client, target_group, dialog=target_dialog)
+            logger.error(f"Pipeline error: {result['error']}")
             
         logger.info("Script execution complete.")
     finally:
