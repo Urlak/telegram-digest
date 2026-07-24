@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 _URL_RE = re.compile(r'https?://\S+|www\.\S+|t\.me/\S+', re.IGNORECASE)
 
-MIN_TEXT_LEN = 10
+MIN_TEXT_LEN = 2
 MAX_TEXT_LEN = 4000
 
 def _clean_text(text: str) -> str:
