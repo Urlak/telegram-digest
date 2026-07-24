@@ -8,8 +8,11 @@ from telethon import TelegramClient
 from telethon.tl.custom.dialog import Dialog
 
 from src.config import setup_logging, load_config, AppConfig
-from src.telegram_client import get_client
-from src.service import execute_digest_pipeline
+from src.telegram_client import get_client, fetch_target_messages, mark_target_messages_read
+from src.service import execute_digest_pipeline, _export_messages
+from src.processor import collapse_consecutive_messages
+from src.summarizer import summarize_messages
+from src.reporter import build_report, finalize_report
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +123,14 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
             hours_back=config.hours_back,
             limit_msgs=config.message_limit,
             export_only=config.export_only,
-            target_dialog=target_dialog
+            target_dialog=target_dialog,
+            fetch_messages_fn=fetch_target_messages,
+            collapse_messages_fn=collapse_consecutive_messages,
+            summarize_messages_fn=summarize_messages,
+            export_messages_fn=_export_messages,
+            build_report_fn=build_report,
+            finalize_report_fn=finalize_report,
+            mark_messages_read_fn=mark_target_messages_read,
         )
         
         if result["status"] == "success":

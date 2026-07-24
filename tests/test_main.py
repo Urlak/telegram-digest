@@ -14,6 +14,7 @@ def make_config(**overrides) -> AppConfig:
         tg_api_id=1,
         tg_api_hash="hash",
         tg_phone_number="+1",
+        tg_bot_token="bot-token",
         gemini_api_key="key",
         target_group="test_group",
         message_limit=50,

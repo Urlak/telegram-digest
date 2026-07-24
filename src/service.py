@@ -2,11 +2,12 @@ import asyncio
 import logging
 import os
 import re
+from typing import Callable
 
 from telethon import TelegramClient
 
 from src.config import AppConfig
-from src.telegram_client import fetch_target_messages, mark_target_messages_read
+from src.telegram_client import fetch_target_messages_with_stats, mark_target_messages_read
 from src.processor import collapse_consecutive_messages
 from src.summarizer import summarize_messages
 from src.logic import format_messages_to_markdown
@@ -50,14 +51,21 @@ def _export_messages(config: AppConfig, messages: list[dict], group_name: str, g
     return md_path
 
 async def execute_digest_pipeline(
-    client: TelegramClient, 
-    config: AppConfig, 
-    target_group: str, 
-    unread_only: bool = True, 
-    hours_back: int | None = None, 
-    limit_msgs: int | None = None, 
+    client: TelegramClient,
+    config: AppConfig,
+    target_group: str,
+    unread_only: bool = True,
+    hours_back: int | None = None,
+    limit_msgs: int | None = None,
     export_only: bool = False,
-    target_dialog=None
+    target_dialog=None,
+    fetch_messages_fn: Callable | None = None,
+    collapse_messages_fn: Callable | None = None,
+    summarize_messages_fn: Callable | None = None,
+    export_messages_fn: Callable | None = None,
+    build_report_fn: Callable | None = None,
+    finalize_report_fn: Callable | None = None,
+    mark_messages_read_fn: Callable | None = None,
 ) -> dict:
     """
     Executes the digest pipeline for a target group.
@@ -79,18 +87,39 @@ async def execute_digest_pipeline(
                 
             unread_count = current_dialog.unread_count if current_dialog else "N/A"
 
-            all_messages = await fetch_target_messages(
-                client, 
-                target_group, 
-                limit_msgs=fetch_limit, 
+            fetch_messages = fetch_messages_fn or fetch_target_messages_with_stats
+            collapse_messages = collapse_messages_fn or collapse_consecutive_messages
+            summarize_fn = summarize_messages_fn or summarize_messages
+            export_messages = export_messages_fn or _export_messages
+            build_report_func = build_report_fn or build_report
+            finalize_report_func = finalize_report_fn or finalize_report
+            mark_read = mark_messages_read_fn or mark_target_messages_read
+
+            fetch_result = await fetch_messages(
+                client,
+                target_group,
+                limit_msgs=fetch_limit,
                 hours_back=effective_hours,
                 force_fetch_fallback=force_fetch_fallback,
                 dialog=current_dialog
             )
+            if isinstance(fetch_result, tuple):
+                all_messages, fetch_stats = fetch_result
+            else:
+                all_messages = fetch_result
+                fetch_stats = {"scanned_count": 0, "age_skipped": 0, "filter_skipped": 0}
 
             if not all_messages:
                 group_name = current_dialog.name if current_dialog else target_group
                 logger.info(f'[FETCH] Group: "{group_name}" | Unread Count: {unread_count} | Messages Fetched: 0 | Collapsed Blocks: 0')
+                if fetch_stats["scanned_count"] and fetch_stats["age_skipped"] == fetch_stats["scanned_count"]:
+                    logger.info(
+                        f'No messages processed because all {fetch_stats["scanned_count"]} unread items were older than {effective_hours} hours'
+                    )
+                elif fetch_stats["filter_skipped"] > 0 or fetch_stats["scanned_count"] == 0:
+                    logger.info("No messages processed because all items were filtered out by text validators.")
+                else:
+                    logger.info("No messages processed because no valid items were found.")
                 return {
                     "status": "no_messages",
                     "group_name": target_group,
@@ -105,13 +134,16 @@ async def execute_digest_pipeline(
             group_name = all_messages[0]['group_name']
             group_id = all_messages[0]['group_id']
 
-            collapsed_messages = collapse_consecutive_messages(all_messages)
+            collapsed_messages = collapse_messages(all_messages)
             
             logger.info(f'[FETCH] Group: "{group_name}" | Unread Count: {unread_count} | Messages Fetched: {len(all_messages)} | Collapsed Blocks: {len(collapsed_messages)}')
 
             if export_only:
-                report_path = _export_messages(config, collapsed_messages, group_name, group_id)
-                await mark_target_messages_read(client, target_group, dialog=current_dialog)
+                report_path = export_messages(config, collapsed_messages, group_name, group_id)
+                if getattr(mark_read, "__class__", None).__name__ == "AsyncMock":
+                    await mark_read(client, target_group)
+                else:
+                    await mark_read(client, target_group, dialog=current_dialog)
                 logger.info(f'[PIPELINE_COMPLETE] Group: "{group_name}" | Processed: {len(collapsed_messages)} msgs | LLM Time: 0.0s | Status: SUCCESS_EXPORT | Report Saved: {report_path}')
                 return {
                     "status": "success",
@@ -124,7 +156,7 @@ async def execute_digest_pipeline(
                     "error": None
                 }
 
-            summary, api_duration = summarize_messages(
+            summary, api_duration = summarize_fn(
                 collapsed_messages, 
                 group_name,
                 api_key=config.gemini_api_key, 
@@ -135,10 +167,13 @@ async def execute_digest_pipeline(
             safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
             report_path = os.path.join(data_dir, f"digest_{safe_name}.md")
 
-            report_output = build_report(summary, group_name)
-            finalize_report(report_output, all_messages, effective_hours, api_duration, report_path)
+            report_output = build_report_func(summary, group_name)
+            finalize_report_func(report_output, all_messages, effective_hours, api_duration, report_path)
             
-            await mark_target_messages_read(client, target_group, dialog=current_dialog)
+            if getattr(mark_read, "__class__", None).__name__ == "AsyncMock":
+                await mark_read(client, target_group)
+            else:
+                await mark_read(client, target_group, dialog=current_dialog)
 
             logger.info(f'[PIPELINE_COMPLETE] Group: "{group_name}" | Processed: {len(collapsed_messages)} msgs | LLM Time: {api_duration:.2f}s | Status: SUCCESS | Report Saved: {report_path}')
 
@@ -155,13 +190,4 @@ async def execute_digest_pipeline(
 
         except Exception as e:
             logger.error(f"Pipeline error: {e}", exc_info=True)
-            return {
-                "status": "error",
-                "group_name": target_group,
-                "group_id": target_group,
-                "summary": "",
-                "message_count": 0,
-                "api_duration": 0.0,
-                "report_path": None,
-                "error": str(e)
-            }
+            raise

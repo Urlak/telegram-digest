@@ -65,12 +65,14 @@ async def _parse_message(message, group_id: str, group_name: str) -> dict | None
     
     cleaned = _clean_text(raw_text)
     if not cleaned:
+        logger.info(f"[SKIP_EMPTY] msg_id={message.id}")
         return None
         
     has_caption = bool(caption)
     is_reply = bool(message.reply_to and hasattr(message.reply_to, 'reply_to_msg_id'))
     
     if len(cleaned) < MIN_TEXT_LEN and not is_reply and not has_caption:
+        logger.info(f"[SKIP_LENGTH] msg_id={message.id} len={len(cleaned)} < MIN_TEXT_LEN")
         return None
     
     if len(cleaned) > MAX_TEXT_LEN:
@@ -83,6 +85,8 @@ async def _parse_message(message, group_id: str, group_name: str) -> dict | None
         sender_name = "Channel Content"
 
     if sender and getattr(sender, 'bot', False):
+        sender_name = getattr(sender, 'username', None) or getattr(sender, 'first_name', '') or 'bot'
+        logger.info(f"[SKIP_BOT] msg_id={message.id} sender={sender_name}")
         return None
     
     if sender:
@@ -122,64 +126,98 @@ async def mark_target_messages_read(client: TelegramClient, target_group: str, d
     return True
 
 
-async def fetch_target_messages(
+async def fetch_target_messages_with_stats(
     client: TelegramClient, 
     target_group: str, 
     limit_msgs: int = 100, 
     hours_back: int = 24,
     force_fetch_fallback: bool = False,
     dialog=None,
-) -> list[dict]:
+) -> tuple[list[dict], dict]:
     """
     Fetches messages from the target group within the specified time limit.
-    Returns a list of dictionaries with message data.
+    Returns a tuple of (message list, stats dict).
     """
     target_group = target_group.strip()
     if not target_group:
-        return []
+        return [], {"scanned_count": 0, "age_skipped": 0, "filter_skipped": 0}
 
     if dialog is None:
         dialog = await _find_target_dialog(client, target_group)
     if not dialog:
         logger.warning(f"Target group '{target_group}' not found.")
-        return []
+        return [], {"scanned_count": 0, "age_skipped": 0, "filter_skipped": 0}
         
     group_name = dialog.name
     unread = dialog.unread_count
     
-    # Evaluate execution mode dynamically before logging
-    is_fetching_unread = False
     if unread > 0:
         fetch_limit = min(unread, limit_msgs)
-        is_fetching_unread = True
         logger.info(f"[{group_name}] Unread mode: Fetching {fetch_limit} unread messages (Cap: {limit_msgs}).")
     elif force_fetch_fallback:
         fetch_limit = limit_msgs
         logger.info(f"[{group_name}] Fallback mode: 0 unreads. Fetching up to {limit_msgs} msgs from past {hours_back} hours.")
     else:
         logger.info(f"[{group_name}] Auto mode: 0 unreads. Skipping fetch (Fallback disabled).")
-        return []
+        return [], {"scanned_count": 0, "age_skipped": 0, "filter_skipped": 0}
         
     time_threshold = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+    cutoff_text = time_threshold.strftime("%Y-%m-%d %H:%M:%S")
     results = []
-    messages_skipped = 0
+    scanned_count = 0
+    count_age = 0
+    count_filter = 0
     
     try:
         async for message in client.iter_messages(dialog.entity, limit=fetch_limit):
-            if message.date and message.date < time_threshold:
-                logger.info("Reached time limit threshold. Stopping fetch.")
+            scanned_count += 1
+            message_date = getattr(message, 'date', None)
+            if message_date and message_date < time_threshold:
+                count_age += 1
+                logger.info(
+                    "[SKIP_AGE] msg_id=%s date=%s is older than cutoff %s",
+                    message.id,
+                    message_date.strftime("%Y-%m-%d %H:%M:%S"),
+                    cutoff_text,
+                )
                 break
                 
             parsed = await _parse_message(message, str(dialog.id), group_name)
             if parsed:
                 results.append(parsed)
             else:
-                messages_skipped += 1
+                count_filter += 1
                 
-        logger.info(f"Retrieved {len(results)} valid messages from '{group_name}' (skipped {messages_skipped} photo/URL-only/bot).")
-            
     except Exception as e:
         logger.error(f"Error fetching messages: {e}")
         
     results.reverse()
+    logger.info(
+        '[FETCH_SUMMARY] Group: "%s" | Total Scanned: %s | Valid: %s | Skipped by Age: %s | Skipped by Filter: %s',
+        group_name,
+        scanned_count,
+        len(results),
+        count_age,
+        count_filter,
+    )
+    return results, {"scanned_count": scanned_count, "age_skipped": count_age, "filter_skipped": count_filter}
+
+
+async def fetch_target_messages(
+    client: TelegramClient,
+    target_group: str,
+    limit_msgs: int = 100,
+    hours_back: int = 24,
+    force_fetch_fallback: bool = False,
+    dialog=None,
+) -> list[dict]:
+    """Fetches messages from the target group within the specified time limit."""
+    results, _ = await fetch_target_messages_with_stats(
+        client,
+        target_group,
+        limit_msgs=limit_msgs,
+        hours_back=hours_back,
+        force_fetch_fallback=force_fetch_fallback,
+        dialog=dialog,
+    )
     return results
