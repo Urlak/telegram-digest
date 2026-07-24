@@ -135,8 +135,6 @@ async def execute_digest_pipeline(
             group_id = all_messages[0]['group_id']
 
             collapsed_messages = collapse_messages(all_messages)
-            
-            logger.info(f'[FETCH] Group: "{group_name}" | Unread Count: {unread_count} | Messages Fetched: {len(all_messages)} | Collapsed Blocks: {len(collapsed_messages)}')
 
             if export_only:
                 report_path = export_messages(config, collapsed_messages, group_name, group_id)

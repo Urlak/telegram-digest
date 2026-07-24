@@ -56,10 +56,10 @@ MAX_LLM_MESSAGES = _config.max_llm_messages
 
 def setup_logging():
     """
-    Sets up basic logging to stderr with standard formatting to avoid
-    stdout buffering issues in Docker Container Manager.
+    Sets up basic logging to stderr with standard formatting across the app and Uvicorn.
     """
     import sys
+    import logging
 
     formatter = logging.Formatter('%(asctime)s | %(levelname)-7s | %(name)s | %(message)s')
 
@@ -67,8 +67,13 @@ def setup_logging():
     handler.setLevel(logging.INFO)
     handler.setFormatter(formatter)
 
-    logging.basicConfig(
-        level=logging.INFO,
-        handlers=[handler],
-        force=True
-    )
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers = [handler]
+
+    # Force Uvicorn loggers to use the same handler & format
+    for uvicorn_logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+        u_logger = logging.getLogger(uvicorn_logger_name)
+        u_logger.handlers = [handler]
+        u_logger.propagate = False
