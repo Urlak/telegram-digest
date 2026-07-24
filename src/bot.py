@@ -30,13 +30,17 @@ def split_message(text: str, limit: int = 4000) -> list[str]:
         
     return chunks
 
-def create_bot(config: AppConfig, telethon_client: TelegramClient) -> tuple[Bot, Dispatcher]:
+def create_bot(config: AppConfig, telethon_client: TelegramClient, owner_id: int) -> tuple[Bot, Dispatcher]:
     bot = Bot(token=config.tg_bot_token)
     dp = Dispatcher()
 
     @dp.message(Command(commands=["start", "help", "groups", "digest"]))
     async def cmd_main(message: Message):
         user = message.from_user
+        if user.id != owner_id:
+            logger.warning(f"[SECURITY] Unauthorized message request from {user.id}")
+            return
+            
         username = user.username or user.full_name
         logger.info(f"[REQUEST] User: @{username} (ID: {user.id}) | Command: {message.text}")
         
@@ -57,11 +61,15 @@ def create_bot(config: AppConfig, telethon_client: TelegramClient) -> tuple[Bot,
 
     @dp.callback_query(F.data.startswith("digest:"))
     async def process_digest_callback(query: CallbackQuery):
+        user = query.from_user
+        if user.id != owner_id:
+            logger.warning(f"[SECURITY] Unauthorized callback request from {user.id}")
+            return
+            
         await query.answer()
         
         group_id = query.data.split(":")[1]
         
-        user = query.from_user
         username = user.username or user.full_name
         logger.info(f'[REQUEST] User: @{username} (ID: {user.id}) | Command: /digest | Target Group: (ID: {group_id})')
         
