@@ -72,16 +72,25 @@ async def execute_digest_pipeline(
         try:
             force_fetch_fallback = not unread_only
 
+            current_dialog = target_dialog
+            if current_dialog is None:
+                from src.telegram_client import _find_target_dialog
+                current_dialog = await _find_target_dialog(client, target_group)
+                
+            unread_count = current_dialog.unread_count if current_dialog else "N/A"
+
             all_messages = await fetch_target_messages(
                 client, 
                 target_group, 
                 limit_msgs=fetch_limit, 
                 hours_back=effective_hours,
                 force_fetch_fallback=force_fetch_fallback,
-                dialog=target_dialog
+                dialog=current_dialog
             )
 
             if not all_messages:
+                group_name = current_dialog.name if current_dialog else target_group
+                logger.info(f'[FETCH] Group: "{group_name}" | Unread Count: {unread_count} | Messages Fetched: 0 | Collapsed Blocks: 0')
                 return {
                     "status": "no_messages",
                     "group_name": target_group,
@@ -97,13 +106,13 @@ async def execute_digest_pipeline(
             group_id = all_messages[0]['group_id']
 
             collapsed_messages = collapse_consecutive_messages(all_messages)
+            
+            logger.info(f'[FETCH] Group: "{group_name}" | Unread Count: {unread_count} | Messages Fetched: {len(all_messages)} | Collapsed Blocks: {len(collapsed_messages)}')
 
             if export_only:
                 report_path = _export_messages(config, collapsed_messages, group_name, group_id)
-                if target_dialog is None:
-                    await mark_target_messages_read(client, target_group)
-                else:
-                    await mark_target_messages_read(client, target_group, dialog=target_dialog)
+                await mark_target_messages_read(client, target_group, dialog=current_dialog)
+                logger.info(f'[PIPELINE_COMPLETE] Group: "{group_name}" | Processed: {len(collapsed_messages)} msgs | LLM Time: 0.0s | Status: SUCCESS_EXPORT | Report Saved: {report_path}')
                 return {
                     "status": "success",
                     "group_name": group_name,
@@ -128,10 +137,10 @@ async def execute_digest_pipeline(
 
             report_output = build_report(summary, group_name)
             finalize_report(report_output, all_messages, effective_hours, api_duration, report_path)
-            if target_dialog is None:
-                await mark_target_messages_read(client, target_group)
-            else:
-                await mark_target_messages_read(client, target_group, dialog=target_dialog)
+            
+            await mark_target_messages_read(client, target_group, dialog=current_dialog)
+
+            logger.info(f'[PIPELINE_COMPLETE] Group: "{group_name}" | Processed: {len(collapsed_messages)} msgs | LLM Time: {api_duration:.2f}s | Status: SUCCESS | Report Saved: {report_path}')
 
             return {
                 "status": "success",

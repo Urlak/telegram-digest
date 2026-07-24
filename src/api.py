@@ -79,6 +79,7 @@ async def api_groups():
 
 @app.post("/api/v1/digest", response_model=DigestResponse)
 async def api_digest(req: DigestRequest):
+    logger.info(f'[REQUEST] User: API (ID: API) | Command: /api/v1/digest | Target Group: "{req.target_group}"')
     client: TelegramClient = app.state.tg_client
     result = await execute_digest_pipeline(
         client=client,

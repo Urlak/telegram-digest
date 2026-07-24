@@ -56,13 +56,27 @@ MAX_LLM_MESSAGES = _config.max_llm_messages
 
 def setup_logging():
     """
-    Sets up basic logging to stdout. 
+    Sets up basic logging to stdout/stderr with standard formatting.
     This is useful for Docker Container Manager to capture logs.
     """
+    import sys
+    
+    class InfoFilter(logging.Filter):
+        def filter(self, record):
+            return record.levelno <= logging.INFO
+            
+    formatter = logging.Formatter('%(asctime)s | %(levelname)-7s | %(name)s | %(message)s')
+    
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.INFO)
+    stdout_handler.addFilter(InfoFilter())
+    stdout_handler.setFormatter(formatter)
+    
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+    stderr_handler.setFormatter(formatter)
+    
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler()
-        ]
+        handlers=[stdout_handler, stderr_handler]
     )

@@ -36,6 +36,10 @@ def create_bot(config: AppConfig, telethon_client: TelegramClient) -> tuple[Bot,
 
     @dp.message(Command(commands=["start", "help", "groups", "digest"]))
     async def cmd_main(message: Message):
+        user = message.from_user
+        username = user.username or user.full_name
+        logger.info(f"[REQUEST] User: @{username} (ID: {user.id}) | Command: {message.text}")
+        
         dialogs = await get_available_dialogs(telethon_client)
         unread_dialogs = [d for d in dialogs if d.get("unread_count", 0) > 0]
         
@@ -56,6 +60,10 @@ def create_bot(config: AppConfig, telethon_client: TelegramClient) -> tuple[Bot,
         await query.answer()
         
         group_id = query.data.split(":")[1]
+        
+        user = query.from_user
+        username = user.username or user.full_name
+        logger.info(f'[REQUEST] User: @{username} (ID: {user.id}) | Command: /digest | Target Group: (ID: {group_id})')
         
         await bot.edit_message_text(
             text="⏳ Summarizing group...",

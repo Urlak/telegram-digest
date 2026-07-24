@@ -47,12 +47,7 @@ def finalize_report(
     
     final_content = digest_output + metadata
     
-    # 1. Print to console
-    print("\n" + "="*60)
-    print(final_content)
-    print("="*60 + "\n")
-    
-    # 2. Save to file
+    # Save to file
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(final_content)
     
