@@ -83,7 +83,7 @@ def create_bot(config: AppConfig, telethon_client: TelegramClient, owner_id: int
             client=telethon_client,
             config=config,
             target_group=group_id,
-            unread_only=True
+            unread_only=False
         )
         
         if result["status"] == "success":

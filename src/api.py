@@ -5,9 +5,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from telethon import TelegramClient
 
-from src.config import load_config
+from src.config import load_config, setup_logging
 from src.telegram_client import get_client
 from src.bot import create_bot
+
+# Initialize standard logging configuration for stdout/stderr
+setup_logging()
 
 logger = logging.getLogger(__name__)
 
