@@ -1,86 +1,111 @@
 # Telegram Digest
 
-A container-native automation tool that extracts messages from Telegram groups or channels and synthesizes them into highly dense, technically focused digests using Google Gemini AI.
+A container-friendly Telegram digest tool that collects messages from Telegram groups or channels, summarizes them with Google Gemini, and can be driven either from a CLI or from a running FastAPI + Telegram bot service.
 
----
+## What the current code does
 
-## 🚀 Core Capabilities
+- The main runtime is a FastAPI application in [src/api.py](src/api.py).
+- On startup, it initializes a Telethon client, creates the Telegram bot, and starts aiogram polling.
+- The bot exposes commands such as `/start`, `/help`, `/groups`, and `/digest`.
+- When a user selects a dialog, the bot runs the digest pipeline and sends the summary back to Telegram.
+- A health endpoint is available at `/health`.
+- The older CLI workflow is still available through [src/main.py](src/main.py) for interactive or auto runs.
 
-- **Container-Native Execution**: Requires no database. Relies only on a local session file for authentication, making it ideal for ephemeral Docker runs or cron jobs.
-- **Smart Fetch Logic**: 
-  - Dynamically calculates API fetch limits based on unread message counts.
-  - Automatically acknowledges messages as read upon successful retrieval.
-  - Configurable fallback limits for inactive channels.
-- **Dual Execution Modes**:
-  - **Interactive CLI**: Prompts for target group selection and unread extraction parameters on the fly.
-  - **Auto Mode (`--auto`)**: Runs headlessly based strictly on `.env` parameters. 
-- **AI-Powered Synthesis**: Leverages Google Gemini (Flash 2.5) to compress sprawling chat histories into structured, narrative summaries.
-- **Export-Only Mode**: Bypasses the LLM entirely, dumping raw, cleaned message logs directly to Markdown.
+## Tech stack
 
-## 🛠️ Tech Stack
+- Python 3.11+
+- FastAPI
+- Telethon
+- aiogram
+- Google Generative AI SDK
+- Docker / Docker Compose
 
-- **Runtime**: Python 3.12+
-- **Telegram Client**: Telethon (MTProto)
-- **AI Engine**: Google Generative AI SDK
-- **Deployment**: Docker / Docker Compose
+## Prerequisites
 
----
+- Telegram API credentials from https://my.telegram.org/apps
+- A Telegram bot token from BotFather
+- A Google Gemini API key from Google AI Studio
+- A Telegram account that will be used to authenticate the session; the bot only responds to that account owner
 
-## 🏃 Quick Start
+## Environment variables
 
-### 1. Prerequisites
-- [Telegram API credentials](https://my.telegram.org/apps) (`TG_API_ID`, `TG_API_HASH`)
-- [Google AI Studio API Key](https://aistudio.google.com) (`GEMINI_API_KEY`)
+Create a `.env` file with at least the following values:
 
-### 2. Setup
+```env
+TG_API_ID=123456
+TG_API_HASH=your_telegram_api_hash
+TG_PHONE_NUMBER=+1234567890
+TG_BOT_TOKEN=your_bot_token
+GEMINI_API_KEY=your_gemini_key
+
+# Optional
+TARGET_GROUP=
+MESSAGE_LIMIT=100
+HOURS_BACK=24
+EXPORT_ONLY=False
+MAX_LLM_MESSAGES=500
+```
+
+## Local setup
+
 ```bash
 git clone <repo-url>
 cd telegram-digest
 
-# Initialize virtual environment
 python -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
+source .venv/bin/activate  # on Windows use .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-
-# Configure environment
-cp .env.template .env
-# Edit .env with your specific credentials and limits
 ```
 
-### 3. Execution
+## Running the API and Telegram bot
 
-**Interactive Mode** (Manual group selection and logic configuration):
+The current default entry point is the FastAPI app, which also starts the Telegram bot:
+
+```bash
+uvicorn src.api:app --host 0.0.0.0 --port 8000
+```
+
+Then check the health endpoint:
+
+```bash
+curl http://localhost:8000/health
+```
+
+After the app is running, start a chat with your bot and use:
+
+- `/start` or `/help` to see the available actions
+- `/groups` to list available dialogs with unread messages
+- `/digest` to start the selection flow
+
+## Running the CLI pipeline
+
+If you want to use the original command-line flow instead of the bot-driven API service:
+
 ```bash
 python -m src.main
 ```
 
-**Auto Mode** (Headless execution using `.env` properties):
+Or run in non-interactive mode using `.env` values:
+
 ```bash
 python -m src.main --auto
 ```
 
-**Run Test Suite**:
-```bash
-pytest
-```
+## Docker deployment
 
----
-
-## 📦 Docker Deployment 
-
-Optimized for lightweight deployment on servers or NAS environments (e.g., Synology Container Manager).
+The repository includes a container setup that starts the API service and its embedded bot:
 
 ```bash
-docker-compose up --build -d
+docker compose up --build -d
 ```
 
-> **Important:** Ensure your `./data` directory is properly mounted in `docker-compose.yml`. Telethon requires persistent access to `session.session` to avoid triggering Telegram's rate limits with repeated login requests. Output artifacts (`.md` files) are also generated in this directory.
+The app is exposed on port `8041` in the host mapping, and the container uses the `./data` directory for the Telegram session and generated Markdown outputs.
 
-## 📂 Project Architecture
+## Project structure
 
-- `src/` — Core pipeline (Client, Config, Processor, Summarizer, Reporter).
-- `data/` — Output directory for Markdown reports and Telethon session files.
-- `tests/` — Unit test suite.
-- `.env.template` — Configuration skeleton.
+- [src/api.py](src/api.py) — FastAPI app and bot startup lifecycle
+- [src/bot.py](src/bot.py) — aiogram handlers and Telegram bot commands
+- [src/main.py](src/main.py) — CLI entry point
+- [src/service.py](src/service.py) — digest execution pipeline
+- [data/](data/) — Telegram session file and generated reports
+- [tests/](tests/) — unit tests
