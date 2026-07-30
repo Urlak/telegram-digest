@@ -71,12 +71,26 @@ def test_summarize_messages_handles_empty_candidates():
         mock_client.return_value = mock_instance
         mock_instance.models.generate_content.return_value = SimpleNamespace(candidates=[])
 
-        summary, duration = summarize_messages(
-            [{"text": "Hello", "message_id": 1, "sender_name": "Alice", "date": "2024-03-19 12:00:00"}],
-            "Test Group",
-            "fake_key",
-            10,
-        )
+        with pytest.raises(RuntimeError, match="blocked or returned no content"):
+            summarize_messages(
+                [{"text": "Hello", "message_id": 1, "sender_name": "Alice", "date": "2024-03-19 12:00:00"}],
+                "Test Group",
+                "fake_key",
+                10,
+            )
 
-        assert "blocked or returned no content" in summary.lower()
-        assert duration == 0.0
+
+def test_summarize_messages_raises_on_api_error():
+    with patch("src.summarizer.genai.Client") as mock_client:
+        mock_instance = MagicMock()
+        mock_client.return_value = mock_instance
+        mock_instance.models.generate_content.side_effect = Exception("503 UNAVAILABLE: High demand")
+
+        with pytest.raises(Exception, match="503 UNAVAILABLE"):
+            summarize_messages(
+                [{"text": "Hello", "message_id": 1, "sender_name": "Alice", "date": "2024-03-19 12:00:00"}],
+                "Test Group",
+                "fake_key",
+                10,
+            )
+

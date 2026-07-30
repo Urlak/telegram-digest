@@ -188,4 +188,13 @@ async def execute_digest_pipeline(
 
         except Exception as e:
             logger.error(f"Pipeline error: {e}", exc_info=True)
-            raise
+            return {
+                "status": "error",
+                "group_name": target_group,
+                "group_id": target_group,
+                "summary": None,
+                "message_count": 0,
+                "api_duration": 0.0,
+                "report_path": None,
+                "error": str(e)
+            }

@@ -83,14 +83,14 @@ def summarize_messages(
         summary_text = _extract_response_text(response)
         if not summary_text:
             logger.warning(f"LLM generated empty response or was blocked for group: {group_name}")
-            return f"### Summary for {group_name}\n\n*Summary generation was blocked or returned no content.*\n", duration
+            raise RuntimeError(f"Summary generation was blocked or returned no content for group {group_name}.")
         
         # Add a clear Markdown header pointing out which group this is for
         group_summary = f"### Summary for {group_name}\n\n{notice}{summary_text.strip()}\n"
         return group_summary, duration
     except Exception as e:
         logger.error(f"Error calling Gemini API for group {group_name}: {e}")
-        return f"### Summary for {group_name}\n\n*Error summarizing messages: {e}*\n", 0.0
+        raise
 
 
 def _extract_response_text(response) -> str | None:

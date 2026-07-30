@@ -101,8 +101,7 @@ async def test_pipeline_does_not_mark_messages_read_when_summarization_fails():
         patch("src.main.summarize_messages", side_effect=RuntimeError("boom")),
         patch("src.main.mark_target_messages_read", new_callable=AsyncMock) as mock_ack,
     ):
-        with pytest.raises(RuntimeError, match="boom"):
-            await run_pipeline(config, is_auto_mode=True)
+        await run_pipeline(config, is_auto_mode=True)
         mock_ack.assert_not_called()
 
 
@@ -134,8 +133,7 @@ async def test_pipeline_disconnects_client_on_failure():
         patch("src.main._init_client", new_callable=AsyncMock, return_value=mock_client),
         patch("src.main.fetch_target_messages", new_callable=AsyncMock, side_effect=RuntimeError("boom")),
     ):
-        with pytest.raises(RuntimeError, match="boom"):
-            await run_pipeline(config, is_auto_mode=True)
+        await run_pipeline(config, is_auto_mode=True)
         mock_client.disconnect.assert_awaited_once()
 
 

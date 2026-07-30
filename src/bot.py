@@ -79,36 +79,44 @@ def create_bot(config: AppConfig, telethon_client: TelegramClient, owner_id: int
             message_id=query.message.message_id
         )
         
-        result = await execute_digest_pipeline(
-            client=telethon_client,
-            config=config,
-            target_group=group_id,
-            unread_only=False
-        )
-        
-        if result["status"] == "success":
-            chunks = split_message(result["summary"])
-            
-            await bot.edit_message_text(
-                text=chunks[0],
-                chat_id=query.message.chat.id,
-                message_id=query.message.message_id
+        try:
+            result = await execute_digest_pipeline(
+                client=telethon_client,
+                config=config,
+                target_group=group_id,
+                unread_only=False
             )
             
-            for chunk in chunks[1:]:
-                await bot.send_message(
+            if result["status"] == "success":
+                chunks = split_message(result["summary"])
+                
+                await bot.edit_message_text(
+                    text=chunks[0],
                     chat_id=query.message.chat.id,
-                    text=chunk
+                    message_id=query.message.message_id
                 )
-        elif result["status"] == "no_messages":
+                
+                for chunk in chunks[1:]:
+                    await bot.send_message(
+                        chat_id=query.message.chat.id,
+                        text=chunk
+                    )
+            elif result["status"] == "no_messages":
+                await bot.edit_message_text(
+                    text="No matching messages found to summarize.",
+                    chat_id=query.message.chat.id,
+                    message_id=query.message.message_id
+                )
+            else:
+                await bot.edit_message_text(
+                    text=f"Error during summarization: {result.get('error', 'Unknown error')}",
+                    chat_id=query.message.chat.id,
+                    message_id=query.message.message_id
+                )
+        except Exception as e:
+            logger.error(f"Error during bot digest processing: {e}", exc_info=True)
             await bot.edit_message_text(
-                text="No matching messages found to summarize.",
-                chat_id=query.message.chat.id,
-                message_id=query.message.message_id
-            )
-        else:
-            await bot.edit_message_text(
-                text=f"Error during summarization: {result.get('error', 'Unknown error')}",
+                text=f"Error during summarization: {e}",
                 chat_id=query.message.chat.id,
                 message_id=query.message.message_id
             )

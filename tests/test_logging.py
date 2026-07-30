@@ -32,7 +32,7 @@ def make_config(**overrides) -> AppConfig:
 @pytest.mark.asyncio
 async def test_parse_message_logs_length_skip(caplog):
     message = SimpleNamespace(
-        text="hi",
+        text="h",
         caption="",
         id=10,
         reply_to=None,
