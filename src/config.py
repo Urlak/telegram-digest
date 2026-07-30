@@ -6,8 +6,11 @@ from dataclasses import dataclass
 # Load environment variables from .env file
 load_dotenv()
 
+
 @dataclass(frozen=True)
 class AppConfig:
+    """Immutable application configuration container loaded from environment properties."""
+
     tg_api_id: int
     tg_api_hash: str
     tg_phone_number: str | None
@@ -21,8 +24,13 @@ class AppConfig:
     max_fetch_limit: int
     session_path: str
 
+
 def load_config() -> AppConfig:
-    """Loads configuration from environment and defines standard paths."""
+    """Loads environment variables into an AppConfig instance with default fallbacks.
+
+    Returns:
+        Populated immutable AppConfig dataclass.
+    """
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_dir = os.path.join(base_dir, 'data')
     
@@ -41,7 +49,8 @@ def load_config() -> AppConfig:
         session_path=os.path.join(data_dir, 'session')
     )
 
-# Legacy support for module-level variables (will be phased out in Phase 3)
+
+# Legacy module-level aliases maintained for backwards compatibility
 _config = load_config()
 TG_API_ID = _config.tg_api_id
 TG_API_HASH = _config.tg_api_hash
@@ -54,9 +63,12 @@ EXPORT_ONLY = _config.export_only
 MAX_FETCH_LIMIT = _config.max_fetch_limit
 MAX_LLM_MESSAGES = _config.max_llm_messages
 
+
 def setup_logging():
-    """
-    Sets up basic logging to stderr with standard formatting across the app and Uvicorn.
+    """Configures structured stderr logging across application and Uvicorn loggers.
+
+    Notes:
+        Overrides Uvicorn handler list to ensure uniform log formatting in Docker containers.
     """
     import sys
     import logging
@@ -72,7 +84,7 @@ def setup_logging():
     root_logger.setLevel(logging.INFO)
     root_logger.handlers = [handler]
 
-    # Force Uvicorn loggers to use the same handler & format
+    # Align Uvicorn logging handlers with application root logger
     for uvicorn_logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
         u_logger = logging.getLogger(uvicorn_logger_name)
         u_logger.handlers = [handler]

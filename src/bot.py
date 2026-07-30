@@ -10,7 +10,15 @@ from src.service import get_available_dialogs, execute_digest_pipeline
 logger = logging.getLogger(__name__)
 
 def split_message(text: str, limit: int = 4000) -> list[str]:
-    """Splits Markdown text into chunks beneath Telegram's character limit."""
+    """Splits Markdown text into chunks beneath Telegram's message character limit.
+
+    Args:
+        text: Input Markdown text to split.
+        limit: Character count threshold per message chunk (default: 4000).
+
+    Returns:
+        List of text chunk strings safe for Telegram message dispatch.
+    """
     if len(text) <= limit:
         return [text]
     
@@ -20,7 +28,7 @@ def split_message(text: str, limit: int = 4000) -> list[str]:
             chunks.append(text)
             break
             
-        # Try to break at a newline to avoid splitting Markdown formatting mid-line
+        # Prefer breaking at newlines to preserve Markdown structural integrity
         split_idx = text.rfind('\n', 0, limit)
         if split_idx == -1:
             split_idx = limit
@@ -30,7 +38,21 @@ def split_message(text: str, limit: int = 4000) -> list[str]:
         
     return chunks
 
+
 def create_bot(config: AppConfig, telethon_client: TelegramClient, owner_id: int) -> tuple[Bot, Dispatcher]:
+    """Factory creating and configuring the Telegram bot instance and handlers.
+
+    Args:
+        config: Application configuration properties.
+        telethon_client: Active Telethon Telegram user client instance.
+        owner_id: Telegram user ID authorized to access bot functionality.
+
+    Returns:
+        Tuple of (configured Bot instance, Dispatcher instance).
+
+    Notes:
+        All handlers enforce access control matching `owner_id` to prevent unauthorized usage.
+    """
     bot = Bot(token=config.tg_bot_token)
     dp = Dispatcher()
 
@@ -52,7 +74,8 @@ def create_bot(config: AppConfig, telethon_client: TelegramClient, owner_id: int
             return
 
         keyboard = []
-        for dialog in unread_dialogs[:50]: # limit to 50 for inline keyboard safety
+        # Limit to top 50 unread groups to adhere to Telegram inline keyboard limits
+        for dialog in unread_dialogs[:50]:
             btn_text = f"• {dialog['name']} ({dialog['unread_count']} unread)"
             keyboard.append([InlineKeyboardButton(text=btn_text, callback_data=f"digest:{dialog['id']}")])
             

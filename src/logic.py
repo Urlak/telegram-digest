@@ -1,10 +1,19 @@
 import re
 
+
 def format_messages_to_markdown(messages: list[dict], group_name: str, group_id: str) -> str:
-    """Formats a list of messages into the user's specific Markdown structure."""
+    """Formats structured Telegram messages into a human-readable Markdown log.
+
+    Args:
+        messages: List of structured message dictionaries.
+        group_name: Human readable name of the Telegram group.
+        group_id: Unique Telegram group identifier string.
+
+    Returns:
+        Formatted Markdown text string grouped by date headings.
+    """
     md_content = f"# SOURCE: {group_name} (ID: {group_id})\n---\n"
     
-    # Sort messages chronologically
     msgs = sorted(messages, key=lambda x: x['date'])
     
     current_date = None
@@ -22,25 +31,29 @@ def format_messages_to_markdown(messages: list[dict], group_name: str, group_id:
     md_content += "\n\n"
     return md_content
 
+
 def clean_text_basic(text: str) -> str:
-    """
-    Collapses whitespace while preserving URLs and other content.
-    Collapses horizontal spaces into a single space.
-    Collapses consecutive newlines into a maximum of a double newline (\n\n) to preserve paragraphs.
+    """Normalizes message text whitespace while keeping embedded URLs intact.
+
+    Args:
+        text: Raw input text from Telegram message.
+
+    Returns:
+        Cleaned text string with collapsed whitespace and preserved paragraph breaks.
+
+    Notes:
+        Limits consecutive blank lines to one (\n\n) to preserve LLM paragraph comprehension.
     """
     if not text:
         return ""
     
-    # Normalize line endings while preserving links as-is
     text = text.replace('\r\n', '\n').replace('\r', '\n')
     
-    # Collapse horizontal spaces on each line
     lines = []
     for line in text.split('\n'):
         clean_line = re.sub(r'[^\S\r\n]+', ' ', line).strip()
         lines.append(clean_line)
         
-    # Collapse consecutive empty lines to a maximum of one empty line (results in \n\n)
     result_lines = []
     consecutive_empty = 0
     for line in lines:

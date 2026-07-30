@@ -18,9 +18,14 @@ logger = logging.getLogger(__name__)
 _pipeline_lock = asyncio.Lock()
 
 async def get_available_dialogs(client: TelegramClient, limit: int = 100) -> list[dict]:
-    """
-    Iterates dialogs and filters for groups/channels.
-    Returns: [{"id": str, "name": str, "unread_count": int}, ...]
+    """Iterates active user dialogs and filters for channels and groups.
+
+    Args:
+        client: Connected Telethon TelegramClient instance.
+        limit: Maximum number of dialogs to scan (default: 100).
+
+    Returns:
+        List of dicts containing chat id, title name, and unread count, sorted by unread items first.
     """
     dialogs = []
     async for dialog in client.iter_dialogs(limit=limit):
@@ -31,12 +36,22 @@ async def get_available_dialogs(client: TelegramClient, limit: int = 100) -> lis
                 "unread_count": dialog.unread_count
             })
             
-    # Sort unreads first, then by name
     dialogs.sort(key=lambda d: (d["unread_count"] == 0, str(d["name"]).lower()))
     return dialogs
 
+
 def _export_messages(config: AppConfig, messages: list[dict], group_name: str, group_id: str) -> str:
-    """Saves clean messages to a Markdown file in export-only mode."""
+    """Exports raw message logs directly to Markdown file without LLM processing.
+
+    Args:
+        config: Application configuration.
+        messages: List of structured message dictionaries.
+        group_name: Target group name string.
+        group_id: Target group Telegram ID string.
+
+    Returns:
+        Absolute file path where exported Markdown was saved.
+    """
     data_dir = os.path.dirname(config.session_path)
     safe_name = re.sub(r'[^\w\s-]', '', group_name).strip().replace(' ', '_')
     filename = f"clean_messages_{safe_name}.md"
@@ -49,6 +64,7 @@ def _export_messages(config: AppConfig, messages: list[dict], group_name: str, g
         
     logger.info(f"EXPORT_ONLY is ON. Saved '{group_name}' to {md_path}.")
     return md_path
+
 
 async def execute_digest_pipeline(
     client: TelegramClient,
@@ -67,13 +83,36 @@ async def execute_digest_pipeline(
     finalize_report_fn: Callable | None = None,
     mark_messages_read_fn: Callable | None = None,
 ) -> dict:
-    """
-    Executes the digest pipeline for a target group.
+    """Executes message extraction, message collapsing, LLM summarization, and report output pipeline.
+
+    Args:
+        client: Connected Telethon TelegramClient instance.
+        config: AppConfig dataclass.
+        target_group: Group title or numeric Telegram ID string.
+        unread_only: If True, fetches only unread items; if False, falls back to time lookback.
+        hours_back: Optional override for time window lookback limit.
+        limit_msgs: Optional override for maximum message count ceiling.
+        export_only: If True, exports messages to Markdown without calling Gemini API.
+        target_dialog: Optional pre-resolved Telethon Dialog object.
+        fetch_messages_fn: Dependency injection override for fetch function.
+        collapse_messages_fn: Dependency injection override for message collapse function.
+        summarize_messages_fn: Dependency injection override for LLM summarization function.
+        export_messages_fn: Dependency injection override for export function.
+        build_report_fn: Dependency injection override for report building.
+        finalize_report_fn: Dependency injection override for report saving.
+        mark_messages_read_fn: Dependency injection override for read acknowledgement.
+
+    Returns:
+        Dictionary containing pipeline execution status, summary string, metrics, and error info.
+
+    Notes:
+        Enforces pipeline concurrency lock to prevent overlapping runs.
+        Calls read acknowledgement ONLY after successful summarization/report generation.
     """
     effective_hours = hours_back if hours_back is not None else config.hours_back
     effective_limit = limit_msgs if limit_msgs is not None else config.message_limit
     
-    # fetch_limit safety
+    # Restrict fetch ceiling to global max configured limit
     fetch_limit = min(effective_limit, config.max_fetch_limit)
 
     async with _pipeline_lock:

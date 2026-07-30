@@ -4,23 +4,37 @@ from google import genai
 
 logger = logging.getLogger(__name__)
 
+
 def summarize_messages(
     messages: list[dict],
     group_name: str,
     api_key: str, 
     max_messages: int
 ) -> tuple[str, float]:
-    """
-    Summarizes messages using Gemini AI.
-    Returns a tuple: (Markdown summary string, total_api_duration_seconds).
+    """Summarizes Telegram chat messages using Gemini AI.
+
+    Args:
+        messages: List of structured message dictionaries.
+        group_name: Title of the Telegram group chat.
+        api_key: Gemini API key authentication token.
+        max_messages: Maximum recent messages to include to avoid token limits.
+
+    Returns:
+        Tuple of (Markdown formatted summary string, API call duration in seconds).
+
+    Raises:
+        RuntimeError: If LLM output is empty or blocked by safety filters.
+        Exception: On upstream Gemini API network or server errors.
+
+    Notes:
+        Exceptions bubble up so the pipeline skips marking messages as read on failure.
     """
     if not messages:
         return "", 0.0
 
-    # Initialize the new genai client
     client = genai.Client(api_key=api_key)
     
-    # Truncate to most recent N messages for LLM safety
+    # Enforce input ceiling to prevent context window overflow and rate limit spikes
     raw_messages = messages
     messages = raw_messages[-max_messages:]
     is_truncated = len(raw_messages) > max_messages
@@ -49,7 +63,6 @@ def summarize_messages(
 
 Сообщения для анализа:
 """
-    # Format messages with IDs and reply context for Gemini
     message_lines = []
     for msg in messages:
         msg_id = msg.get("message_id", "???")
@@ -64,12 +77,10 @@ def summarize_messages(
         message_lines.append(line)
         
     messages_text = "\n".join(message_lines)
-    
     full_prompt = f"{prompt}\n{messages_text}"
         
     try:
         start_time = time.time()
-        # Call Gemini using the new syntax and `gemini-2.5-flash`
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=full_prompt,
@@ -85,7 +96,6 @@ def summarize_messages(
             logger.warning(f"LLM generated empty response or was blocked for group: {group_name}")
             raise RuntimeError(f"Summary generation was blocked or returned no content for group {group_name}.")
         
-        # Add a clear Markdown header pointing out which group this is for
         group_summary = f"### Summary for {group_name}\n\n{notice}{summary_text.strip()}\n"
         return group_summary, duration
     except Exception as e:
@@ -94,11 +104,19 @@ def summarize_messages(
 
 
 def _extract_response_text(response) -> str | None:
-    """Safely extracts text from Gemini responses, supporting both old and new shapes."""
+    """Safely extracts text from Gemini responses, supporting both direct text and candidate parts.
+
+    Args:
+        response: Response object returned by google.genai client.
+
+    Returns:
+        Extracted text string if present and non-empty, otherwise None.
+    """
     direct_text = getattr(response, "text", None)
     if isinstance(direct_text, str) and direct_text.strip():
         return direct_text.strip()
 
+    # Fallback to traversing candidate parts if response.text raises or is unpopulated
     candidates = getattr(response, "candidates", None) or []
     if not candidates:
         return None

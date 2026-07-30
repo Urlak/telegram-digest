@@ -17,7 +17,14 @@ from src.reporter import build_report, finalize_report
 logger = logging.getLogger(__name__)
 
 async def _init_client(config: AppConfig) -> TelegramClient | None:
-    """Initializes and connects the Telegram client."""
+    """Initializes Telethon Telegram client using session path from configuration.
+
+    Args:
+        config: Application configuration containing authentication keys.
+
+    Returns:
+        Connected TelegramClient instance or None if connection fails.
+    """
     os.makedirs(os.path.dirname(config.session_path), exist_ok=True)
     try:
         return await get_client(
@@ -30,10 +37,16 @@ async def _init_client(config: AppConfig) -> TelegramClient | None:
         logger.error(f"Failed to initialize Telegram client. Error: {e}")
         return None
 
+
 async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25) -> tuple[str, bool, Dialog | None]:
-    """
-    Interactive CLI to select a target group and determine unread fetching logic.
-    Returns: (target_group_id_or_name, force_fetch_fallback, selected_dialog)
+    """Interactive CLI menu to select target Telegram group and unread filtering preference.
+
+    Args:
+        client: Connected Telethon TelegramClient instance.
+        display_limit: Maximum number of groups to present in CLI menu.
+
+    Returns:
+        Tuple of (target_group_id_or_name, force_fetch_fallback, selected_dialog).
     """
     print("\n" + "="*50)
     print(" FETCHING RECENT GROUPS...")
@@ -41,7 +54,7 @@ async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25
     
     dialogs: list[Dialog] = []
     
-    # Fetch a larger pool to ensure unread groups are captured before sorting
+    # Fetch larger dialog pool (100) to ensure unread groups are captured before sorting
     async for dialog in client.iter_dialogs(limit=100):
         if dialog.is_group or dialog.is_channel:
             dialogs.append(dialog)
@@ -50,13 +63,11 @@ async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25
         print("No groups found.")
         sys.exit(0)
 
-    # Sort logic: Unreads first, then alphabetical
     dialogs.sort(key=lambda d: (d.unread_count == 0, str(d.name or "Unknown").lower()))
     
-    # Apply the display limit AFTER sorting
+    # Truncate after sorting so unread chats appear first within display limit
     dialogs = dialogs[:display_limit]
 
-    # Display numbered list
     for idx, dialog in enumerate(dialogs, 1):
         name = dialog.name or "Unknown"
         indicator = "•" if dialog.unread_count > 0 else " "
@@ -92,8 +103,14 @@ async def _run_interactive_setup(client: TelegramClient, display_limit: int = 25
 
     return selected_group, force_fetch_fallback, selected_dialog
 
+
 async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
-    """Main orchestration logic for the Telegram Digest pipeline."""
+    """Orchestrates message extraction, summarization, report writing, and client cleanup.
+
+    Args:
+        config: Application configuration dataclass.
+        is_auto_mode: If True, uses non-interactive configuration from environment variables.
+    """
     logger.info("Starting Telegram Digest Extraction...")
     
     client = await _init_client(config)
@@ -155,7 +172,9 @@ async def run_pipeline(config: AppConfig, is_auto_mode: bool) -> None:
         except Exception as exc:
             logger.warning("Failed to disconnect Telegram client cleanly: %s", exc)
 
+
 async def main() -> None:
+    """CLI entrypoint parsing arguments and initiating execution pipeline."""
     parser = argparse.ArgumentParser(description="Telegram Group Summarizer")
     parser.add_argument(
         "--auto", 
@@ -168,6 +187,7 @@ async def main() -> None:
     config = load_config()
     
     await run_pipeline(config, is_auto_mode=args.auto)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

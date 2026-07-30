@@ -12,11 +12,22 @@ MIN_TEXT_LEN = 2
 MAX_TEXT_LEN = 4000
 
 def _clean_text(text: str) -> str:
-    """Uses centralized logic to collapse whitespace but KEEP URLs."""
+    """Uses centralized text processing to collapse whitespace while keeping URLs intact."""
     return clean_text_basic(text)
 
+
 async def get_client(session_name: str, api_id: int, api_hash: str, phone: str | None = None) -> TelegramClient:
-    """Initializes and returns the Telethon TelegramClient."""
+    """Initializes and authenticates Telethon TelegramClient instance.
+
+    Args:
+        session_name: File path prefix for storing Telethon session credentials.
+        api_id: Telegram API identifier integer.
+        api_hash: Telegram API hash token string.
+        phone: Optional user phone number for interactive authentication.
+
+    Returns:
+        Connected Telethon TelegramClient instance.
+    """
     logger.info(f"Connecting to Telegram with session file: {session_name}.session")
     client = TelegramClient(session_name, api_id, api_hash)
     
@@ -27,9 +38,13 @@ async def get_client(session_name: str, api_id: int, api_hash: str, phone: str |
         
     return client
 
+
 async def print_available_groups(client: TelegramClient, limit: int = 50) -> None:
-    """
-    Lists the names and IDs of available dialogs so the user can configure TARGET_GROUP.
+    """Prints list of available group dialog names and IDs to stdout for setup reference.
+
+    Args:
+        client: Connected Telethon TelegramClient instance.
+        limit: Maximum number of dialogs to list (default: 50).
     """
     logger.info("TARGET_GROUP not set. Listing available groups...")
     print("\n" + "="*60)
@@ -46,17 +61,36 @@ async def print_available_groups(client: TelegramClient, limit: int = 50) -> Non
     print("\nTo summarize one of these, add its ID or exact name to TARGET_GROUP in your .env file.")
     print("Example: TARGET_GROUP=-10012345\n")
 
+
 async def _find_target_dialog(client: TelegramClient, target_group: str):
-    """Iterates dialogs to find a match by exact name or ID string."""
+    """Searches user dialogs for a target matching exact title or Telegram ID string.
+
+    Args:
+        client: Connected Telethon TelegramClient.
+        target_group: Group title or numeric Telegram ID string.
+
+    Returns:
+        Matched Telethon Dialog instance or None if not found.
+    """
     async for dialog in client.iter_dialogs():
         if dialog.name == target_group or str(dialog.id) == target_group:
             return dialog
     return None
 
+
 async def _parse_message(message, group_id: str, group_name: str) -> dict | None:
-    """
-    Parses a single Telethon message, applying cleaning and validation filters.
-    Returns the message dict if valid, or None if skipped/invalid.
+    """Parses Telethon message object into a clean dictionary payload.
+
+    Args:
+        message: Raw Telethon Message object.
+        group_id: Target group identifier string.
+        group_name: Target group name string.
+
+    Returns:
+        Structured message dict if message passes quality filters, otherwise None.
+
+    Notes:
+        Filters out bot messages, empty text, and single-character non-reply noise.
     """
     raw_text = message.text or ''
     caption = getattr(message, 'caption', '') or ''
@@ -109,8 +143,18 @@ async def _parse_message(message, group_id: str, group_name: str) -> dict | None
         "text": cleaned
     }
 
+
 async def mark_target_messages_read(client: TelegramClient, target_group: str, dialog=None) -> bool:
-    """Marks the target dialog as read after successful processing."""
+    """Sends read receipt acknowledgement for the specified group to Telegram.
+
+    Args:
+        client: Connected Telethon TelegramClient instance.
+        target_group: Group title or numeric Telegram ID string.
+        dialog: Optional pre-resolved Telethon Dialog instance.
+
+    Returns:
+        True if read receipt was sent successfully, False otherwise.
+    """
     target_group = target_group.strip()
     if not target_group:
         return False
@@ -134,9 +178,18 @@ async def fetch_target_messages_with_stats(
     force_fetch_fallback: bool = False,
     dialog=None,
 ) -> tuple[list[dict], dict]:
-    """
-    Fetches messages from the target group within the specified time limit.
-    Returns a tuple of (message list, stats dict).
+    """Fetches messages from target Telegram group with detailed extraction telemetry.
+
+    Args:
+        client: Connected Telethon TelegramClient instance.
+        target_group: Group title or numeric Telegram ID string.
+        limit_msgs: Maximum message fetch limit.
+        hours_back: Cutoff age threshold in hours for fetching messages.
+        force_fetch_fallback: If True, fetches past messages even if unread count is 0.
+        dialog: Optional pre-resolved Telethon Dialog instance.
+
+    Returns:
+        Tuple of (list of parsed message dicts, statistics telemetry dict).
     """
     target_group = target_group.strip()
     if not target_group:
@@ -211,7 +264,19 @@ async def fetch_target_messages(
     force_fetch_fallback: bool = False,
     dialog=None,
 ) -> list[dict]:
-    """Fetches messages from the target group within the specified time limit."""
+    """Helper wrapper around fetch_target_messages_with_stats returning message list.
+
+    Args:
+        client: Connected Telethon TelegramClient instance.
+        target_group: Group title or numeric Telegram ID string.
+        limit_msgs: Maximum message fetch limit.
+        hours_back: Cutoff age threshold in hours.
+        force_fetch_fallback: Fetch fallback boolean flag.
+        dialog: Optional pre-resolved Telethon Dialog instance.
+
+    Returns:
+        List of parsed message dictionaries.
+    """
     results, _ = await fetch_target_messages_with_stats(
         client,
         target_group,
