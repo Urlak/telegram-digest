@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from dataclasses import replace
 import pytest
 
 from src.config import AppConfig
@@ -11,7 +12,7 @@ from src.telegram_client import _parse_message, fetch_target_messages_with_stats
 
 
 def make_config(**overrides) -> AppConfig:
-    defaults = dict(
+    base = AppConfig(
         tg_api_id=1,
         tg_api_hash="hash",
         tg_phone_number="+1",
@@ -25,8 +26,7 @@ def make_config(**overrides) -> AppConfig:
         max_fetch_limit=10000,
         session_path="/data/session",
     )
-    defaults.update(overrides)
-    return AppConfig(**defaults)
+    return replace(base, **overrides)
 
 
 @pytest.mark.asyncio

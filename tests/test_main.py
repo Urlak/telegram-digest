@@ -2,6 +2,7 @@
 Tests for src/main.py pipeline logic.
 All I/O (Telegram client, file system, summarizer) is mocked.
 """
+from dataclasses import replace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,7 +11,7 @@ from src.config import AppConfig
 
 
 def make_config(**overrides) -> AppConfig:
-    defaults = dict(
+    base = AppConfig(
         tg_api_id=1,
         tg_api_hash="hash",
         tg_phone_number="+1",
@@ -24,8 +25,7 @@ def make_config(**overrides) -> AppConfig:
         max_fetch_limit=10000,
         session_path="/data/session",
     )
-    defaults.update(overrides)
-    return AppConfig(**defaults)
+    return replace(base, **overrides)
 
 
 SAMPLE_MESSAGES = [
