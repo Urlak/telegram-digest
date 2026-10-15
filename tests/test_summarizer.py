@@ -33,11 +33,18 @@ def test_summarize_messages_with_data():
         # Verify call content and format
         call_args = mock_instance.models.generate_content.call_args
         assert call_args is not None
-        full_prompt = call_args[1]["contents"]
+        contents = call_args[1]["contents"]
+        config = call_args[1]["config"]
         
-        # Assert metadata format is correct
-        assert "[Msg: 1] Alice: Hello" in full_prompt
-        assert "[Msg: 2] Bob (In reply to 1): Hi Alice" in full_prompt
+        # Assert metadata format is correct in contents
+        assert "[Msg: 1] Alice: Hello" in contents
+        assert "[Msg: 2] Bob (In reply to 1): Hi Alice" in contents
+        assert "ТРЕБОВАНИЯ" not in contents
+
+        # Assert system_instruction and temperature in config
+        assert "system_instruction" in config
+        assert "Test Group" in config["system_instruction"]
+        assert config["temperature"] == 0.2
 
 def test_summarize_messages_truncation():
     # Mock genai.Client

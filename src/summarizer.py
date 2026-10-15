@@ -60,9 +60,7 @@ def summarize_messages(
 СТРУКТУРА КАЖДОГО ТОПИКА:
 **[Название темы / Предмет обсуждения]**
 [Текст абзаца: суть разговора, ключевые факты, аргументы сторон, планы, новости или принятые решения]. ([Имена] | Msg: {{диапазон_или_ключевые_ID}})
-
-Сообщения для анализа:
-"""
+""".strip()
     message_lines = []
     for msg in messages:
         msg_id = msg.get("message_id", "???")
@@ -77,15 +75,15 @@ def summarize_messages(
         message_lines.append(line)
         
     messages_text = "\n".join(message_lines)
-    full_prompt = f"{prompt}\n{messages_text}"
         
     try:
         start_time = time.time()
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=full_prompt,
+            contents=messages_text,
             config={
-                'temperature': 0.3,
+                'system_instruction': prompt,
+                'temperature': 0.2,
                 'top_p': 0.95,
             }
         )
