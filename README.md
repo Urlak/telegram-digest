@@ -6,7 +6,7 @@ A container-friendly Telegram digest tool that collects messages from Telegram g
 
 - The main runtime is a FastAPI application in [src/api.py](src/api.py).
 - On startup, it initializes a Telethon client, creates the Telegram bot, and starts aiogram polling.
-- The bot exposes commands such as `/start`, `/help`, `/groups`, and `/digest`.
+- The bot exposes a single `/start` command to display unread dialogs and trigger summaries.
 - When a user selects a dialog, the bot runs the digest pipeline and sends the summary back to Telegram.
 - A health endpoint is available at `/health`.
 - The older CLI workflow is still available through [src/main.py](src/main.py) for interactive or auto runs.
@@ -71,11 +71,9 @@ Then check the health endpoint:
 curl http://localhost:8000/health
 ```
 
-After the app is running, start a chat with your bot and use:
+After the app is running, start a chat with your bot and send:
 
-- `/start` or `/help` to see the available actions
-- `/groups` to list available dialogs with unread messages
-- `/digest` to start the selection flow
+- `/start` to view groups with unread messages and select one for summarization.
 
 ## Running the CLI pipeline
 

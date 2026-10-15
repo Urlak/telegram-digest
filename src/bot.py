@@ -56,8 +56,8 @@ def create_bot(config: AppConfig, telethon_client: TelegramClient, owner_id: int
     bot = Bot(token=config.tg_bot_token)
     dp = Dispatcher()
 
-    @dp.message(Command(commands=["start", "help", "groups", "digest"]))
-    async def cmd_main(message: Message):
+    @dp.message(Command("start"))
+    async def cmd_start(message: Message):
         user = message.from_user
         if user.id != owner_id:
             logger.warning(f"[SECURITY] Unauthorized message request from {user.id}")
