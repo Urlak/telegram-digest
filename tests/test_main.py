@@ -10,7 +10,7 @@ import pytest
 
 from src.config import AppConfig
 from src.contracts import FetchOutcome, SummaryResult
-from src.main import _export_messages, run_pipeline
+from src.main import _export_messages, _run_interactive_setup, run_pipeline
 
 
 def make_config(**overrides) -> AppConfig:
@@ -464,3 +464,51 @@ def test_export_messages_uses_original_messages(tmp_path):
     assert "[ID:[1]]" in content
     assert "[ID:[2]]" in content
     assert "Hi Alice" in content
+
+
+class _DialogListClient:
+    """Client stub whose iter_dialogs yields the given dialogs."""
+
+    def __init__(self, dialogs):
+        self._dialogs = dialogs
+
+    def iter_dialogs(self, limit=100):
+        async def generator():
+            for dialog in self._dialogs:
+                yield dialog
+
+        return generator()
+
+
+def _dialog(unread_count: int):
+    return SimpleNamespace(
+        name="Test Group",
+        id=-100123,
+        unread_count=unread_count,
+        is_group=True,
+        is_channel=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_interactive_unread_batch_skips_fetch_mode_prompt():
+    """Variant A: unread messages win, so no fallback question is asked."""
+    client = _DialogListClient([_dialog(unread_count=3)])
+    with patch("builtins.input", side_effect=["1"]) as mock_input:
+        target, force_fallback, _ = await _run_interactive_setup(client)
+
+    assert target == "-100123"
+    assert force_fallback is False
+    assert mock_input.call_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer, expected", [("y", True), ("n", False)])
+async def test_interactive_fallback_prompt_only_without_unread(answer, expected):
+    """The fallback question is asked only when nothing is unread."""
+    client = _DialogListClient([_dialog(unread_count=0)])
+    with patch("builtins.input", side_effect=["1", answer]) as mock_input:
+        _, force_fallback, _ = await _run_interactive_setup(client)
+
+    assert force_fallback is expected
+    assert mock_input.call_count == 2

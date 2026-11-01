@@ -84,16 +84,24 @@ async def _run_interactive_setup(
         except ValueError:
             print("Please enter a valid number.")
 
+    # Unread messages always win: the fallback window would mix already-read
+    # history into the digest, so it is only offered when nothing is unread.
+    unread_count = selected_dialog.unread_count or 0
     force_fetch_fallback = False
-    while True:
-        unread_choice = input("\nFetch unread messages ONLY? (y/n): ").strip().lower()
-        if unread_choice in {"y", "yes"}:
-            force_fetch_fallback = False
-            break
-        if unread_choice in {"n", "no"}:
-            force_fetch_fallback = True
-            break
-        print("Please enter 'y' or 'n'.")
+
+    if unread_count > 0:
+        print(f"\n{unread_count} unread message(s): fetching the oldest unread batch.")
+    else:
+        while True:
+            answer = input(
+                "\nNo unread messages. Fetch recent history (HOURS_BACK) instead? (y/n): "
+            ).strip().lower()
+            if answer in {"y", "yes"}:
+                force_fetch_fallback = True
+                break
+            if answer in {"n", "no"}:
+                break
+            print("Please enter 'y' or 'n'.")
 
     return selected_group, force_fetch_fallback, selected_dialog
 

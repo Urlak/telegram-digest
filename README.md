@@ -92,6 +92,11 @@ MAX_FLOOD_WAIT_SECONDS=300
 `TARGET_GROUP` accepts **one** exact chat title or numeric ID. It is only used
 by `--auto`; the bot lists chats interactively.
 
+The interactive CLI (`python -m src.main`) asks for a group and, **only when
+that group has no unread messages**, whether to fall back to the last
+`HOURS_BACK` hours. When unread messages exist it always digests the oldest
+unread batch, so already-read history never mixes into the digest.
+
 ## Running the API and bot
 
 ```bash
