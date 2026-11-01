@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import logging
 import os
+import time
 from typing import Callable
 
 from telethon import TelegramClient
@@ -269,6 +270,47 @@ def _result(
     }
 
 
+def _format_span(seconds: float) -> str:
+    """Formats a duration as ``45m``, ``5h55m`` or ``2d3h``."""
+    minutes = int(seconds // 60)
+    if minutes < 60:
+        return f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h{minutes:02d}m"
+    days, hours = divmod(hours, 24)
+    return f"{days}d{hours}h"
+
+
+def _message_range(messages: list[dict]) -> str:
+    """Describes the batch as ``12:40 -> 18:35 (5h55m)``."""
+    if not messages:
+        return "n/a"
+    first = messages[0].get("date") or "?"
+    last = messages[-1].get("date") or "?"
+    start = messages[0].get("timestamp")
+    end = messages[-1].get("timestamp")
+    span = ""
+    if isinstance(start, (int, float)) and isinstance(end, (int, float)) and end >= start:
+        span = f" ({_format_span(end - start)})"
+    if len(first) >= 16 and len(last) >= 16 and first[:10] == last[:10]:
+        return f"{first[11:16]} -> {last[11:16]}{span}"
+    return f"{first} -> {last}{span}"
+
+
+def _sender_count(messages: list[dict]) -> int:
+    """Counts distinct authors in a batch."""
+    return len({m.get("sender_name") for m in messages if m.get("sender_name")})
+
+
+def _report_size(path: str | None) -> str:
+    """Human readable size of a written report, or ``n/a`` when it is missing."""
+    try:
+        return f"{os.path.getsize(path) / 1024:.1f} KB"
+    except (OSError, TypeError):
+        return "n/a"
+
+
 async def execute_digest_pipeline(
     client: TelegramClient,
     config: AppConfig,
@@ -298,7 +340,9 @@ async def execute_digest_pipeline(
     effective_limit = limit_msgs if limit_msgs is not None else config.message_limit
     fetch_limit = min(effective_limit, config.max_fetch_limit)
 
+    started = time.perf_counter()
     async with _pipeline_lock:
+        waited = time.perf_counter() - started
         try:
             force_fetch_fallback = not unread_only
 
@@ -429,13 +473,22 @@ async def execute_digest_pipeline(
                 )
                 status = "incomplete" if outcome.incomplete else "success"
                 logger.info(
-                    '[PIPELINE_COMPLETE] Group: "%s" | Exported: %s msgs | '
-                    "Acknowledged: %s | Status: %s | Report: %s",
+                    '[PIPELINE_COMPLETE] Group: "%s" (%s) | Exported: %s msgs | '
+                    "Mode: %s | Unread: %s->%s | Range: %s | Wait: %.2fs | "
+                    "Total: %.2fs | Ack: max_id=%s | Status: %s | Report: %s (%s)",
                     group_name,
+                    group_id,
                     len(all_messages),
-                    acknowledged,
+                    outcome.mode,
+                    outcome.unread_count,
+                    remaining,
+                    _message_range(all_messages),
+                    waited,
+                    time.perf_counter() - started,
+                    predicted_ack if acknowledged else "no",
                     status.upper(),
                     report_path,
+                    _report_size(report_path),
                 )
                 return _result(
                     status,
@@ -537,20 +590,45 @@ async def execute_digest_pipeline(
 
             status = "incomplete" if outcome.incomplete else "success"
             logger.info(
-                '[PIPELINE_COMPLETE] Group: "%s" | Source: %s msgs | '
-                "Blocks: %s | LLM blocks: %s | LLM chars: %s | LLM Time: %.2fs | "
-                "Truncated: %s | Acknowledged: %s | Status: %s | Report: %s",
+                '[PIPELINE_COMPLETE] Group: "%s" (%s) | Mode: %s | Unread: %s->%s | '
+                "Range: %s | Msgs: %s | Senders: %s | Skipped: %s (age %s, filter %s) | "
+                "Blocks: %s->%s | LLM: %s blocks / %s chars / %.2fs | Wait: %.2fs | "
+                "Total: %.2fs | Truncated: %s | Ack: max_id=%s | Status: %s | "
+                "Report: %s (%s)",
                 group_name,
+                group_id,
+                outcome.mode,
+                outcome.unread_count,
+                remaining,
+                _message_range(all_messages),
+                len(all_messages),
+                _sender_count(all_messages),
+                outcome.age_skipped + outcome.filter_skipped,
+                outcome.age_skipped,
+                outcome.filter_skipped,
                 len(all_messages),
                 len(collapsed_messages),
                 summary.used_count,
                 summary.used_chars,
                 summary.api_duration,
+                waited,
+                time.perf_counter() - started,
                 summary.truncated,
-                acknowledged,
+                predicted_ack if acknowledged else "no",
                 status.upper(),
                 report_path,
+                _report_size(report_path),
             )
+
+            if summary.truncated:
+                logger.warning(
+                    '[DIGEST_TRUNCATED] Group: "%s" | LLM got %s of %s blocks '
+                    "(%s chars) | raise MAX_LLM_MESSAGES or MAX_LLM_CHARS",
+                    group_name,
+                    summary.used_count,
+                    len(collapsed_messages),
+                    summary.used_chars,
+                )
 
             return _result(
                 status,

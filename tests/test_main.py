@@ -2,6 +2,7 @@
 
 All I/O (Telegram client, filesystem, Gemini) is mocked.
 """
+import logging
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -512,3 +513,86 @@ async def test_interactive_fallback_prompt_only_without_unread(answer, expected)
 
     assert force_fallback is expected
     assert mock_input.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_pipeline_log_describes_the_digest(caplog):
+    """The single pipeline line must describe the batch, not only counters."""
+    config = make_config()
+    with (
+        patch("src.main._init_client", new_callable=AsyncMock, return_value=MagicMock()),
+        patch(
+            "src.service._find_target_dialog",
+            new_callable=AsyncMock,
+            return_value=fake_dialog(unread_count=2),
+        ),
+        patch(
+            "src.main.fetch_target_messages_with_stats",
+            new_callable=AsyncMock,
+            return_value=unread_outcome(),
+        ),
+        patch("src.main.collapse_consecutive_messages", return_value=SAMPLE_MESSAGES),
+        patch("src.main.summarize_messages", return_value=summary_result()),
+        patch("src.main.build_report", return_value="report text"),
+        patch("src.main.finalize_report"),
+        patch(
+            "src.main.mark_target_messages_read",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        caplog.at_level(logging.INFO, logger="src.service"),
+    ):
+        await run_pipeline(config, is_auto_mode=True)
+
+    line = next(
+        record.getMessage()
+        for record in caplog.records
+        if "[PIPELINE_COMPLETE]" in record.getMessage()
+    )
+    for fragment in (
+        "Mode: unread",
+        "Unread: 2->0",
+        "Range: 10:00 -> 10:01 (1m)",
+        "Senders: 2",
+        "Wait:",
+        "Total:",
+        "Truncated: False",
+    ):
+        assert fragment in line, (fragment, line)
+
+
+@pytest.mark.asyncio
+async def test_truncated_digest_is_logged_as_a_warning(caplog):
+    """A partially summarized batch must not hide behind an INFO line."""
+    config = make_config()
+    with (
+        patch("src.main._init_client", new_callable=AsyncMock, return_value=MagicMock()),
+        patch(
+            "src.service._find_target_dialog",
+            new_callable=AsyncMock,
+            return_value=fake_dialog(unread_count=2),
+        ),
+        patch(
+            "src.main.fetch_target_messages_with_stats",
+            new_callable=AsyncMock,
+            return_value=unread_outcome(),
+        ),
+        patch("src.main.collapse_consecutive_messages", return_value=SAMPLE_MESSAGES),
+        patch(
+            "src.main.summarize_messages",
+            return_value=summary_result(truncated=True, used_count=1, total_count=2),
+        ),
+        patch("src.main.build_report", return_value="report text"),
+        patch("src.main.finalize_report"),
+        patch(
+            "src.main.mark_target_messages_read",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        caplog.at_level(logging.INFO, logger="src.service"),
+    ):
+        await run_pipeline(config, is_auto_mode=True)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("[DIGEST_TRUNCATED]" in r.getMessage() for r in warnings)
+    assert any("1 of 2 blocks" in r.getMessage() for r in warnings)
