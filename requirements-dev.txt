@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+# Used by the local (gitignored) NAS deployment helper tools/deploy_nas.py
+paramiko>=3.4.0

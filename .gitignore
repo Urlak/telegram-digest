@@ -44,6 +44,9 @@ data/*
 .coverage
 htmlcov/
 
+# Local NAS deployment helper (machine-specific host/user/path)
+tools/deploy_nas.py
+
 # Editor ignores
 .vscode/
 .idea/
