@@ -212,12 +212,22 @@ def setup_logging():
                 record.args = ()
             return True
 
+    class _DropHealthNoise(logging.Filter):
+        """Drops successful /health probes: the Docker healthcheck hits them every 30s."""
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            if record.name != "uvicorn.access":
+                return True
+            message = record.getMessage()
+            return not ("/health" in message and message.rstrip().endswith(" 200"))
+
     formatter = logging.Formatter("%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
 
     handler = logging.StreamHandler(sys.stderr)
     handler.setLevel(logging.INFO)
     handler.setFormatter(formatter)
     handler.addFilter(_TruncateBlobs())
+    handler.addFilter(_DropHealthNoise())
 
     # Configure root logger
     root_logger = logging.getLogger()

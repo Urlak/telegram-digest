@@ -41,3 +41,18 @@ def test_setup_logging_truncates_binary_blobs(capsys):
     assert "[truncated]" in captured.err
     longest = max(captured.err.splitlines(), key=len)
     assert len(longest) < 2500, len(longest)
+
+
+def test_setup_logging_drops_successful_health_probes(capsys):
+    """Healthcheck chatter is hidden without losing failing probes or real traffic."""
+    setup_logging()
+    access = logging.getLogger("uvicorn.access")
+
+    access.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:1", "GET", "/health", "1.1", 200)
+    access.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:2", "GET", "/health", "1.1", 503)
+    access.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:3", "GET", "/start", "1.1", 200)
+
+    err = capsys.readouterr().err
+    assert '"GET /health HTTP/1.1" 200' not in err
+    assert '"GET /health HTTP/1.1" 503' in err
+    assert '"GET /start HTTP/1.1" 200' in err
