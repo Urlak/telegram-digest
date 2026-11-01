@@ -12,6 +12,7 @@ from src.config import load_config, setup_logging, validate_config
 setup_logging()
 
 from src.bot import create_bot
+from src.heartbeat import run_heartbeat
 from src.telegram_client import get_client
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
     client: TelegramClient | None = None
     bot = None
     polling_task: asyncio.Task | None = None
+    heartbeat_task: asyncio.Task | None = None
 
     try:
         client = await _init_client()
@@ -87,10 +89,24 @@ async def lifespan(app: FastAPI):
 
         polling_task.add_done_callback(_polling_done)
 
+        # /health is polled every 30s but filtered from the log, so a quiet
+        # container would look dead; one line per 10 minutes proves it is alive.
+        heartbeat_task = asyncio.create_task(
+            run_heartbeat(_health_snapshot),
+            name="heartbeat",
+        )
+
         yield
 
     finally:
         app.state.polling_alive = False
+
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
 
         if polling_task is not None:
             polling_task.cancel()
@@ -117,22 +133,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-@app.get("/health")
-async def health():
-    """Health check used by Docker and uptime monitoring.
-
-    Returns 200 only when the polling task is alive and the Telegram client is
-    connected.  Details are included to make a silent failure visible.
-    """
+def _health_snapshot() -> dict:
+    """Builds the health payload shared by /health and the periodic heartbeat."""
     polling_task = getattr(app.state, "polling_task", None)
     polling_alive = bool(polling_task and not polling_task.done())
 
     client = getattr(app.state, "tg_client", None)
     telegram_connected = bool(client and client.is_connected())
 
-    healthy = polling_alive and telegram_connected
     payload = {
-        "status": "ok" if healthy else "degraded",
+        "status": "ok" if polling_alive and telegram_connected else "degraded",
         "polling": polling_alive,
         "telegram_connected": telegram_connected,
     }
@@ -140,5 +150,18 @@ async def health():
     polling_error = getattr(app.state, "polling_error", None)
     if polling_error and not polling_alive:
         payload["error"] = polling_error
+    return payload
 
-    return JSONResponse(status_code=200 if healthy else 503, content=payload)
+
+@app.get("/health")
+async def health():
+    """Health check used by Docker and uptime monitoring.
+
+    Returns 200 only when the polling task is alive and the Telegram client is
+    connected.  Details are included to make a silent failure visible.
+    """
+    payload = _health_snapshot()
+    return JSONResponse(
+        status_code=200 if payload["status"] == "ok" else 503,
+        content=payload,
+    )
