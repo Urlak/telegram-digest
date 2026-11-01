@@ -46,6 +46,7 @@ htmlcov/
 
 # Local NAS deployment helper (machine-specific host/user/path)
 tools/deploy_nas.py
+tools/upload_nas.py
 
 # Editor ignores
 .vscode/
