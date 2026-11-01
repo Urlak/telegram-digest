@@ -194,15 +194,30 @@ def setup_logging():
 
     Notes:
         Overrides Uvicorn handler list to ensure uniform log formatting in Docker containers.
+        Long records (Telethon logs raw TL byte dumps) are truncated so one failure
+        cannot flood the container log.
     """
     import sys
     import logging
+
+    class _TruncateBlobs(logging.Filter):
+        """Cuts pathological single-record payloads such as binary dumps."""
+
+        limit = 2000
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            message = record.getMessage()
+            if len(message) > self.limit:
+                record.msg = message[: self.limit] + "... [truncated]"
+                record.args = ()
+            return True
 
     formatter = logging.Formatter("%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
 
     handler = logging.StreamHandler(sys.stderr)
     handler.setLevel(logging.INFO)
     handler.setFormatter(formatter)
+    handler.addFilter(_TruncateBlobs())
 
     # Configure root logger
     root_logger = logging.getLogger()

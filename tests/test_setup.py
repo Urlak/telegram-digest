@@ -27,3 +27,17 @@ def test_setup_logging_uses_stderr_for_all_levels():
     assert handlers, "setup_logging should install at least one handler"
     assert any(isinstance(handler, logging.StreamHandler) and handler.stream is sys.stderr for handler in handlers)
     assert not any(isinstance(handler, logging.StreamHandler) and handler.stream is sys.stdout for handler in handlers)
+
+
+def test_setup_logging_truncates_binary_blobs(capsys):
+    """A single Telethon byte dump must not flood the container log."""
+    setup_logging()
+
+    logging.getLogger("telethon.network.mtprotosender").error(
+        "Remaining bytes: b'%s'", "\\x1f" * 4000
+    )
+
+    captured = capsys.readouterr()
+    assert "[truncated]" in captured.err
+    longest = max(captured.err.splitlines(), key=len)
+    assert len(longest) < 2500, len(longest)
