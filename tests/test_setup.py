@@ -7,12 +7,9 @@ from src.config import setup_logging
 
 
 def test_gemini_library_import():
-    """
-    Validates google-generativeai isn't erroring out contextually
-    (similar to an issue spotted in previous project runs).
-    """
+    """Validates that the active google-genai SDK can be imported."""
     try:
-        import google.generativeai as genai
+        from google import genai  # noqa: F401
     except ImportError as e:
         pytest.fail(f"Could not load Google Generative AI package: {e}")
 
