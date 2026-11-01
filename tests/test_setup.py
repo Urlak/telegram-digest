@@ -56,3 +56,16 @@ def test_setup_logging_drops_successful_health_probes(capsys):
     assert '"GET /health HTTP/1.1" 200' not in err
     assert '"GET /health HTTP/1.1" 503' in err
     assert '"GET /start HTTP/1.1" 200' in err
+
+
+def test_setup_logging_quiets_sdk_chatter():
+    """Normal Telethon/Gemini internals must not drown out digest lines."""
+    names = ("telethon.client.updates", "google_genai.models")
+    previous = {name: logging.getLogger(name).level for name in names}
+    try:
+        setup_logging()
+        for name in names:
+            assert logging.getLogger(name).getEffectiveLevel() >= logging.WARNING
+    finally:
+        for name, level in previous.items():
+            logging.getLogger(name).setLevel(level)

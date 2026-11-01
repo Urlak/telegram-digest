@@ -234,6 +234,11 @@ def setup_logging():
     root_logger.setLevel(logging.INFO)
     root_logger.handlers = [handler]
 
+    # Telethon reports normal update synchronisation and the Gemini SDK logs its
+    # defaults; both drown out the single line written by a digest run.
+    for quiet_name in ("telethon.client.updates", "google_genai.models"):
+        logging.getLogger(quiet_name).setLevel(logging.WARNING)
+
     # Align Uvicorn logging handlers with application root logger
     for uvicorn_logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
         u_logger = logging.getLogger(uvicorn_logger_name)
