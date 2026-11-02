@@ -55,23 +55,6 @@ def _media_marker(message) -> str | None:
     return None
 
 
-def _sender_name(message) -> str:
-    sender = getattr(message, "sender", None)
-
-    if not sender and getattr(message, "sender_id", None) is not None:
-        return f"User_{message.sender_id}"
-
-    if sender:
-        if getattr(sender, "bot", False):
-            return getattr(sender, "username", None) or getattr(sender, "first_name", "") or "bot"
-        first = getattr(sender, "first_name", "") or ""
-        last = getattr(sender, "last_name", "") or ""
-        title = getattr(sender, "title", "") or ""
-        return f"{first} {last}".strip() or title or "Unknown"
-
-    return "Channel Content"
-
-
 async def get_client(
     session_name: str, api_id: int, api_hash: str, phone: str | None = None
 ) -> TelegramClient:
@@ -85,24 +68,6 @@ async def get_client(
         await client.start()
 
     return client
-
-
-async def print_available_groups(client: TelegramClient, limit: int = 50) -> None:
-    """Prints available group names and IDs to stdout for setup reference."""
-    logger.info("TARGET_GROUP not set. Listing available groups...")
-    print("\n" + "=" * 60)
-    print("AVAILABLE TELEGRAM GROUPS/CHATS (Top 50)")
-    print("=" * 60)
-    print(f"{'ID':<20} | {'NAME'}")
-    print("-" * 60)
-
-    async for dialog in client.iter_dialogs(limit=limit):
-        if dialog.is_group or dialog.is_channel:
-            name = dialog.name or "Unknown"
-            print(f"{dialog.id:<20} | {name}")
-
-    print("\nTo summarize one of these, add its ID or exact name to TARGET_GROUP in your .env file.")
-    print("Example: TARGET_GROUP=-10012345\n")
 
 
 async def _find_target_dialog(client: TelegramClient, target_group: str):
@@ -162,7 +127,15 @@ async def _parse_message(
         )
         return None
 
-    sender_name = _sender_name(message)
+    if sender:
+        first = getattr(sender, "first_name", "") or ""
+        last = getattr(sender, "last_name", "") or ""
+        title = getattr(sender, "title", "") or ""
+        sender_name = f"{first} {last}".strip() or title or "Unknown"
+    elif getattr(message, "sender_id", None) is not None:
+        sender_name = f"User_{message.sender_id}"
+    else:
+        sender_name = "Channel Content"
 
     reply_to_id = None
     if message.reply_to and hasattr(message.reply_to, "reply_to_msg_id"):
@@ -218,10 +191,6 @@ async def mark_target_messages_read(
     without an explicit boundary, and the pipeline only passes an ID that
     belongs to a contiguous, fully processed/filtered prefix.
     """
-    target_group = (target_group or "").strip()
-    if not target_group:
-        return False
-
     if max_id is None or int(max_id) <= 0:
         logger.warning("Refusing to acknowledge without an explicit max_id.")
         return False
@@ -319,17 +288,14 @@ async def _collect_once(
         message_date = getattr(message, "date", None)
 
         if mode == "fallback" and message_date is not None:
-            try:
-                if ensure_utc(message_date) < time_threshold:
-                    age_skipped += 1
-                    logger.debug(
-                        "[SKIP_AGE] msg_id=%s older than %s hours",
-                        message.id,
-                        hours_back,
-                    )
-                    break
-            except (TypeError, ValueError):
-                pass
+            if ensure_utc(message_date) < time_threshold:
+                age_skipped += 1
+                logger.debug(
+                    "[SKIP_AGE] msg_id=%s older than %s hours",
+                    message.id,
+                    hours_back,
+                )
+                break
 
         scanned_count += 1
         scanned_ids.append(message.id)
@@ -514,24 +480,3 @@ async def fetch_target_messages_with_stats(
         error=str(last_error) if last_error else "Message fetch failed.",
     )
 
-
-async def fetch_target_messages(
-    client: TelegramClient,
-    target_group: str,
-    limit_msgs: int = 100,
-    hours_back: int = 24,
-    force_fetch_fallback: bool = False,
-    dialog=None,
-    **kwargs,
-) -> list[dict]:
-    """Compatibility wrapper returning only the parsed message list."""
-    outcome = await fetch_target_messages_with_stats(
-        client,
-        target_group,
-        limit_msgs=limit_msgs,
-        hours_back=hours_back,
-        force_fetch_fallback=force_fetch_fallback,
-        dialog=dialog,
-        **kwargs,
-    )
-    return outcome.messages
