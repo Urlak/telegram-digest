@@ -14,6 +14,8 @@ personal NAS.
 - Selecting a group processes the **oldest unread batch** and acknowledges only
   that batch. Newer unread messages stay unread for the next run, so a large
   backlog is drained safely instead of being marked read all at once.
+- Every finished digest keeps an inline **📥 Ещё дайджест** button that reopens
+  the unread list, so `/start` is only needed once per chat session.
 - Messages are filtered, media-only messages get markers (`[Фото]`,
   `[Голосовое, 0:42]`, ...), links are compacted to platform markers (`[YT]`,
   `[TG]`, ...), and the prompt is bounded by `MAX_LLM_CHARS`.
