@@ -4,30 +4,11 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
-def _sort_key(message: dict) -> tuple[float, int]:
-    timestamp = message.get("timestamp")
-    try:
-        time_value = float(timestamp)
-    except (TypeError, ValueError):
-        time_value = 0.0
-    try:
-        id_value = int(message.get("message_id") or 0)
-    except (TypeError, ValueError):
-        id_value = 0
-    return time_value, id_value
-
-
-def _time_value(message: dict) -> float | None:
+def _time_value(message: dict) -> float:
     timestamp = message.get("timestamp")
     if timestamp is not None:
-        try:
-            return float(timestamp)
-        except (TypeError, ValueError):
-            return None
-    try:
-        return datetime.strptime(message["date"], "%Y-%m-%d %H:%M").timestamp()
-    except (KeyError, TypeError, ValueError):
-        return None
+        return float(timestamp)
+    return datetime.strptime(message["date"], "%Y-%m-%d %H:%M").timestamp()
 
 
 def collapse_consecutive_messages(
@@ -47,10 +28,9 @@ def collapse_consecutive_messages(
         Messages from different reply targets are never merged.  Reply pointers
         are remapped to the primary block ID so thread links remain valid.
     """
-    if not messages:
-        return []
-
-    sorted_msgs = sorted(messages, key=_sort_key)
+    sorted_msgs = sorted(
+        messages, key=lambda m: (_time_value(m), m.get("message_id", 0))
+    )
 
     collapsed: list[dict] = []
     current: dict | None = None
@@ -58,41 +38,31 @@ def collapse_consecutive_messages(
 
     for msg in sorted_msgs:
         msg_id = msg["message_id"]
-        msg_id_mapping[msg_id] = msg_id
 
-        if current is None:
-            current = dict(msg)
-            current["merged_ids"] = [msg_id]
-            collapsed.append(current)
-            continue
+        if current is not None:
+            time_gap = (_time_value(msg) - _time_value(current)) / 60.0
+            same_sender = current["sender_name"] == msg["sender_name"]
+            within_time = time_gap <= max_gap_minutes
+            same_thread = current.get("reply_to_id") == msg.get("reply_to_id")
+            combined_text = f"{current['text']}\n\n{msg['text']}"
+            within_size = (
+                max_block_chars is None or len(combined_text) <= max_block_chars
+            )
 
-        current_time = _time_value(current)
-        msg_time = _time_value(msg)
-        if current_time is None or msg_time is None:
-            time_gap = 999.0
-        else:
-            time_gap = (msg_time - current_time) / 60.0
+            if same_sender and within_time and same_thread and within_size:
+                current["text"] = combined_text
+                current["merged_ids"].append(msg_id)
+                current["date"] = msg["date"]
+                if "date_full" in msg:
+                    current["date_full"] = msg["date_full"]
+                if "timestamp" in msg:
+                    current["timestamp"] = msg["timestamp"]
+                msg_id_mapping[msg_id] = current["message_id"]
+                continue
 
-        same_sender = current["sender_name"] == msg["sender_name"]
-        within_time = time_gap <= max_gap_minutes
-        same_thread = current.get("reply_to_id") == msg.get("reply_to_id")
-
-        combined_text = f"{current.get('text', '')}\n\n{msg.get('text', '')}"
-        within_size = (
-            max_block_chars is None or len(combined_text) <= max_block_chars
-        )
-
-        if same_sender and within_time and same_thread and within_size:
-            current["text"] = combined_text
-            current["merged_ids"].append(msg_id)
-            current["date"] = msg["date"]
-            current["date_full"] = msg.get("date_full", current.get("date_full"))
-            current["timestamp"] = msg.get("timestamp", current.get("timestamp"))
-            msg_id_mapping[msg_id] = current["message_id"]
-        else:
-            current = dict(msg)
-            current["merged_ids"] = [msg_id]
-            collapsed.append(current)
+        current = dict(msg)
+        current["merged_ids"] = [msg_id]
+        collapsed.append(current)
 
     # Remap reply pointers to primary block IDs so thread links remain valid.
     for msg in collapsed:
