@@ -64,128 +64,22 @@ def _export_messages(
     return report_path
 
 
-def _coerce_fetch_result(result) -> FetchOutcome:
-    """Normalizes injected/legacy fetch results into a ``FetchOutcome``."""
-    if isinstance(result, FetchOutcome):
-        return result
-
-    if isinstance(result, tuple) and len(result) == 2:
-        messages, stats = result
-        messages = list(messages or [])
-        stats = stats or {}
-        scanned_ids = list(
-            stats.get("scanned_ids")
-            or [message.get("message_id") for message in messages]
-        )
-        parsed_ids = set(
-            stats.get("parsed_ids")
-            or [message.get("message_id") for message in messages]
-        )
-        return FetchOutcome(
-            messages=messages,
-            mode=stats.get("mode", "fallback"),
-            scanned_count=stats.get("scanned_count", len(scanned_ids)),
-            age_skipped=stats.get("age_skipped", 0),
-            filter_skipped=stats.get("filter_skipped", 0),
-            unread_count=stats.get("unread_count", 0),
-            remaining_unread=stats.get("remaining_unread", 0),
-            scanned_ids=scanned_ids,
-            parsed_ids=parsed_ids,
-            incomplete=bool(stats.get("incomplete", False)),
-            error=stats.get("error"),
-            batch_max_id=stats.get("batch_max_id")
-            or (max(scanned_ids) if scanned_ids else None),
-            oldest_unread_id=stats.get("oldest_unread_id")
-            or (min(scanned_ids) if scanned_ids else None),
-        )
-
-    if isinstance(result, list):
-        messages = list(result)
-        scanned_ids = [message.get("message_id") for message in messages]
-        return FetchOutcome(
-            messages=messages,
-            mode="fallback",
-            scanned_count=len(scanned_ids),
-            scanned_ids=scanned_ids,
-            parsed_ids=set(scanned_ids),
-            batch_max_id=max(scanned_ids) if scanned_ids else None,
-        )
-
-    return FetchOutcome()
-
-
-def _block_ids(blocks: list[dict]) -> set[int]:
-    ids: set[int] = set()
-    for block in blocks:
-        merged = block.get("merged_ids") or []
-        for item in merged:
-            try:
-                ids.add(int(item))
-            except (TypeError, ValueError):
-                continue
-        if not merged and block.get("message_id") is not None:
-            try:
-                ids.add(int(block["message_id"]))
-            except (TypeError, ValueError):
-                pass
-    return ids
-
-
 def _coerce_summary_result(result, blocks: list[dict]) -> SummaryResult:
-    """Normalizes injected/legacy summarizer results into a ``SummaryResult``."""
-    all_ids = _block_ids(blocks)
-
-    if isinstance(result, SummaryResult):
-        if not result.used_message_ids:
-            result.used_message_ids = set(all_ids)
-        if not result.total_count:
-            result.total_count = len(blocks)
-        if not result.model:
-            result.model = GEMINI_MODEL
-        return result
-
-    if isinstance(result, tuple) and len(result) == 2:
-        text, duration = result
-        return SummaryResult(
-            text=text or "",
-            api_duration=float(duration or 0.0),
-            model=GEMINI_MODEL,
-            used_count=len(blocks),
-            used_chars=0,
-            total_count=len(blocks),
-            truncated=False,
-            used_message_ids=set(all_ids),
-        )
-
-    if isinstance(result, str):
-        return SummaryResult(
-            text=result,
-            api_duration=0.0,
-            model=GEMINI_MODEL,
-            used_count=len(blocks),
-            used_chars=0,
-            total_count=len(blocks),
-            truncated=False,
-            used_message_ids=set(all_ids),
-        )
-
-    return SummaryResult(
-        text="",
-        model=GEMINI_MODEL,
-        total_count=len(blocks),
-        used_message_ids=set(all_ids),
-    )
-
-
-async def _call_summarizer(
-    summarize_fn: Callable, *, timeout: float, kwargs: dict
-) -> object:
-    """Runs sync or async summarizers without blocking the event loop."""
-    if inspect.iscoroutinefunction(summarize_fn):
-        return await asyncio.wait_for(summarize_fn(**kwargs), timeout=timeout)
-    return await asyncio.wait_for(
-        asyncio.to_thread(summarize_fn, **kwargs), timeout=timeout
-    )
+    """Ensures a SummaryResult has defaulted metadata."""
+    if not isinstance(result, SummaryResult):
+        return SummaryResult(text="", model=GEMINI_MODEL, total_count=len(blocks))
+    if not result.used_message_ids:
+        result.used_message_ids = {
+            mid
+            for b in blocks
+            for mid in (b.get("merged_ids") or [b.get("message_id")])
+            if mid is not None
+        }
+    if not result.total_count:
+        result.total_count = len(blocks)
+    if not result.model:
+        result.model = GEMINI_MODEL
+    return result
 
 
 def _compute_ack_max_id(
@@ -270,37 +164,24 @@ def _result(
     }
 
 
-def _format_span(seconds: float) -> str:
-    """Formats a duration as ``45m``, ``5h55m`` or ``2d3h``."""
-    minutes = int(seconds // 60)
-    if minutes < 60:
-        return f"{minutes}m"
-    hours, minutes = divmod(minutes, 60)
-    if hours < 24:
-        return f"{hours}h{minutes:02d}m"
-    days, hours = divmod(hours, 24)
-    return f"{days}d{hours}h"
-
-
 def _message_range(messages: list[dict]) -> str:
     """Describes the batch as ``12:40 -> 18:35 (5h55m)``."""
-    if not messages:
-        return "n/a"
     first = messages[0].get("date") or "?"
     last = messages[-1].get("date") or "?"
     start = messages[0].get("timestamp")
     end = messages[-1].get("timestamp")
     span = ""
     if isinstance(start, (int, float)) and isinstance(end, (int, float)) and end >= start:
-        span = f" ({_format_span(end - start)})"
+        minutes = int((end - start) // 60)
+        if minutes < 60:
+            formatted = f"{minutes}m"
+        else:
+            hours, mins = divmod(minutes, 60)
+            formatted = f"{hours}h{mins:02d}m" if hours < 24 else f"{hours // 24}d{hours % 24}h"
+        span = f" ({formatted})"
     if len(first) >= 16 and len(last) >= 16 and first[:10] == last[:10]:
         return f"{first[11:16]} -> {last[11:16]}{span}"
     return f"{first} -> {last}{span}"
-
-
-def _sender_count(messages: list[dict]) -> int:
-    """Counts distinct authors in a batch."""
-    return len({m.get("sender_name") for m in messages if m.get("sender_name")})
 
 
 def _report_size(path: str | None) -> str:
@@ -373,7 +254,11 @@ async def execute_digest_pipeline(
                 retries=config.request_retries,
                 max_flood_wait=config.max_flood_wait_seconds,
             )
-            outcome = _coerce_fetch_result(fetch_result)
+            outcome = (
+                fetch_result
+                if isinstance(fetch_result, FetchOutcome)
+                else FetchOutcome()
+            )
 
             if outcome.messages:
                 group_name = outcome.messages[0].get("group_name") or group_name
@@ -445,13 +330,9 @@ async def execute_digest_pipeline(
                     incomplete=False,
                 )
 
-            try:
-                collapsed_messages = collapse_messages(
-                    all_messages, max_block_chars=config.max_block_chars
-                )
-            except TypeError:
-                # Support simple injected collapse callables in tests.
-                collapsed_messages = collapse_messages(all_messages)
+            collapsed_messages = collapse_messages(
+                all_messages, max_block_chars=config.max_block_chars
+            )
 
             if export_only:
                 report_path = export_messages(config, all_messages, group_name, group_id)
@@ -517,19 +398,19 @@ async def execute_digest_pipeline(
                 "timeout_seconds": config.gemini_timeout_seconds,
                 "retries": config.request_retries,
             }
-            raw_summary = await _call_summarizer(
-                summarize_fn,
-                timeout=config.gemini_timeout_seconds + 5,
-                kwargs=summary_kwargs,
+            summarize_coro = (
+                summarize_fn(**summary_kwargs)
+                if inspect.iscoroutinefunction(summarize_fn)
+                else asyncio.to_thread(summarize_fn, **summary_kwargs)
+            )
+            raw_summary = await asyncio.wait_for(
+                summarize_coro, timeout=config.gemini_timeout_seconds + 5
             )
             summary = _coerce_summary_result(raw_summary, collapsed_messages)
 
             tz, tz_label = resolve_timezone(config.timezone)
-            period_start = None
-            period_end = None
-            if all_messages:
-                period_start = all_messages[0].get("date_full") or all_messages[0].get("date")
-                period_end = all_messages[-1].get("date_full") or all_messages[-1].get("date")
+            period_start = all_messages[0].get("date_full") or all_messages[0].get("date")
+            period_end = all_messages[-1].get("date_full") or all_messages[-1].get("date")
 
             data_dir = os.path.dirname(config.session_path)
             report_path, latest_path = build_report_paths(
@@ -602,7 +483,7 @@ async def execute_digest_pipeline(
                 remaining,
                 _message_range(all_messages),
                 len(all_messages),
-                _sender_count(all_messages),
+                len({m.get("sender_name") for m in all_messages if m.get("sender_name")}),
                 outcome.age_skipped + outcome.filter_skipped,
                 outcome.age_skipped,
                 outcome.filter_skipped,
