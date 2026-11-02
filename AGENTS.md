@@ -21,6 +21,17 @@ docker compose up --build -d                       # host :8041 -> container :80
 
 No lint, formatter, typecheck, or CI config exists; do not invent commands. Run `pytest` from the repo root (`pytest.ini` sets `pythonpath = .`).
 
+
+## Code Change Principles
+- **Prefer minimal diffs.** Make the smallest change that fully solves the requested task. Do not rewrite or refactor unrelated code or neighboring functions.
+- **Avoid redundant defensive checks.** Do not add unnecessary null checks, type checks, or input validation inside private/internal methods when inputs are already validated and their contracts are clear. Validate untrusted input at system boundaries.
+- **Avoid unnecessary abstractions.** Do not introduce one-off helpers, classes, interfaces, generic frameworks, or design patterns unless they provide clear value through reuse or meaningful simplification.
+- **Reuse existing code.** Prefer existing utilities, helpers, and established project patterns over implementing new solutions.
+- **Avoid speculative complexity.** Do not add hypothetical error handling, fallback mechanisms, logging, configuration options, or compatibility layers unless they are required by the task or existing behavior.
+- **Keep changes within scope.** Do not opportunistically improve, modernize, or clean up unrelated code.
+- **Keep tests focused.** Add or update tests for changed behavior, but avoid redundant tests that duplicate existing coverage.
+- **Do not over-engineer.** Prefer straightforward, readable solutions over maximum generality or theoretical robustness. Optimize for the current requirements, not hypothetical future needs.
+
 ## Architecture and data flow
 
 - `src/api.py` lifespan validates config, connects Telethon, derives `owner_id` from the logged-in account, and starts aiogram polling with `handle_signals=False` so Uvicorn owns SIGTERM/SIGINT. Cleanup runs in `try/finally`.
