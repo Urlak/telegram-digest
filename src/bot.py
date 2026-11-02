@@ -16,14 +16,17 @@ logger = logging.getLogger(__name__)
 # Callback data for the "one more digest" / "refresh" button.
 CONTINUE_CALLBACK = "groups:refresh"
 
-
-def _refresh_keyboard(text: str = "📥 Ещё дайджест") -> InlineKeyboardMarkup:
-    """Single button that re-opens the list of groups with unread messages."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=text, callback_data=CONTINUE_CALLBACK)]
-        ]
-    )
+CONTINUE_KEYBOARD = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Ещё дайджест", callback_data=CONTINUE_CALLBACK)]
+    ]
+)
+REFRESH_KEYBOARD = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data=CONTINUE_CALLBACK)]
+    ]
+)
+EMPTY_KEYBOARD = InlineKeyboardMarkup(inline_keyboard=[])
 
 
 def _group_keyboard(unread_dialogs: list[dict]) -> InlineKeyboardMarkup:
@@ -37,9 +40,7 @@ def _group_keyboard(unread_dialogs: list[dict]) -> InlineKeyboardMarkup:
         ]
         for dialog in unread_dialogs[:50]
     ]
-    rows.append(
-        [InlineKeyboardButton(text="🔄 Обновить", callback_data=CONTINUE_CALLBACK)]
-    )
+    rows.append(REFRESH_KEYBOARD.inline_keyboard[0])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -112,29 +113,29 @@ async def _send_digest(
     if not chunks:
         chunks = [html_text]
 
-    def _sent_id(sent, fallback: int | None) -> int | None:
-        return getattr(sent, "message_id", None) or fallback
-
     try:
         if message_id is not None:
-            sent = await bot.edit_message_text(
-                text=chunks[0],
-                chat_id=chat_id,
-                message_id=message_id,
-                parse_mode=ParseMode.HTML,
-            )
-            last_id = _sent_id(sent, message_id)
+            last_id = (
+                await bot.edit_message_text(
+                    text=chunks[0],
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    parse_mode=ParseMode.HTML,
+                )
+            ).message_id
         else:
-            sent = await bot.send_message(
-                chat_id=chat_id, text=chunks[0], parse_mode=ParseMode.HTML
-            )
-            last_id = _sent_id(sent, None)
+            last_id = (
+                await bot.send_message(
+                    chat_id=chat_id, text=chunks[0], parse_mode=ParseMode.HTML
+                )
+            ).message_id
 
         for chunk in chunks[1:]:
-            sent = await bot.send_message(
-                chat_id=chat_id, text=chunk, parse_mode=ParseMode.HTML
-            )
-            last_id = _sent_id(sent, last_id)
+            last_id = (
+                await bot.send_message(
+                    chat_id=chat_id, text=chunk, parse_mode=ParseMode.HTML
+                )
+            ).message_id
         return last_id
 
     except TelegramBadRequest as exc:
@@ -145,45 +146,33 @@ async def _send_digest(
         if not plain_chunks:
             return message_id
         if message_id is not None:
-            sent = await bot.edit_message_text(
-                text=plain_chunks[0], chat_id=chat_id, message_id=message_id
-            )
-            last_id = _sent_id(sent, message_id)
+            last_id = (
+                await bot.edit_message_text(
+                    text=plain_chunks[0], chat_id=chat_id, message_id=message_id
+                )
+            ).message_id
         else:
-            sent = await bot.send_message(chat_id=chat_id, text=plain_chunks[0])
-            last_id = _sent_id(sent, None)
+            last_id = (
+                await bot.send_message(chat_id=chat_id, text=plain_chunks[0])
+            ).message_id
         for chunk in plain_chunks[1:]:
-            sent = await bot.send_message(chat_id=chat_id, text=chunk)
-            last_id = _sent_id(sent, last_id)
+            last_id = (
+                await bot.send_message(chat_id=chat_id, text=chunk)
+            ).message_id
         return last_id
 
 
-async def _clear_markup(bot: Bot, chat_id: int, message_id: int) -> None:
-    """Removes inline buttons (for example the group list) from a message."""
-    try:
-        await bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=message_id,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[]),
-        )
-    except TelegramBadRequest as exc:
-        if "message is not modified" not in str(exc).lower():
-            logger.warning("Failed to clear inline keyboard: %s", exc)
-
-
-async def _attach_markup(
-    bot: Bot, chat_id: int, message_id: int | None, reply_markup: InlineKeyboardMarkup
+async def _set_markup(
+    bot: Bot, chat_id: int, message_id: int, reply_markup: InlineKeyboardMarkup
 ) -> None:
-    """Puts the continue button under the last message produced by a digest."""
-    if message_id is None:
-        return
+    """Replaces the inline keyboard of an already sent message."""
     try:
         await bot.edit_message_reply_markup(
             chat_id=chat_id, message_id=message_id, reply_markup=reply_markup
         )
     except TelegramBadRequest as exc:
         if "message is not modified" not in str(exc).lower():
-            logger.warning("Failed to attach the continue button: %s", exc)
+            logger.warning("Failed to update inline keyboard: %s", exc)
 
 
 async def _edit_plain(
@@ -221,7 +210,7 @@ def create_bot(
             await bot.send_message(
                 chat_id=chat_id,
                 text="There are no unread messages in your groups.",
-                reply_markup=_refresh_keyboard("🔄 Проверить снова"),
+                reply_markup=REFRESH_KEYBOARD,
             )
             return
 
@@ -288,7 +277,7 @@ def create_bot(
         await _edit_plain(
             bot, chat_id, status_message_id, "⏳ Summarizing group..."
         )
-        await _clear_markup(bot, chat_id, status_message_id)
+        await _set_markup(bot, chat_id, status_message_id, EMPTY_KEYBOARD)
 
         try:
             result = await execute_digest_pipeline(
@@ -299,7 +288,7 @@ def create_bot(
             )
 
             notice = _status_notice(result)
-            markup = _refresh_keyboard()
+            markup = CONTINUE_KEYBOARD
 
             if result["status"] in {"success", "incomplete"} and result.get("summary"):
                 last_id = await _send_digest(
@@ -309,9 +298,10 @@ def create_bot(
                     message_id=status_message_id,
                 )
                 if notice:
-                    sent = await bot.send_message(chat_id=chat_id, text=notice)
-                    last_id = getattr(sent, "message_id", last_id)
-                await _attach_markup(bot, chat_id, last_id, markup)
+                    last_id = (
+                        await bot.send_message(chat_id=chat_id, text=notice)
+                    ).message_id
+                await _set_markup(bot, chat_id, last_id, markup)
             elif result["status"] == "no_messages":
                 text = "No matching messages found to summarize."
                 if result.get("acknowledged"):
@@ -338,7 +328,7 @@ def create_bot(
                 chat_id,
                 status_message_id,
                 f"Error during summarization: {exc}",
-                reply_markup=_refresh_keyboard(),
+                reply_markup=CONTINUE_KEYBOARD,
             )
 
     return bot, dp

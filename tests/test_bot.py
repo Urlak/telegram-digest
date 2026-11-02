@@ -7,8 +7,8 @@ from aiogram import Dispatcher
 
 from src.bot import (
     CONTINUE_CALLBACK,
+    CONTINUE_KEYBOARD,
     _group_keyboard,
-    _refresh_keyboard,
     _send_digest,
     _status_notice,
     create_bot,
@@ -61,8 +61,7 @@ def test_group_keyboard_lists_groups_and_a_refresh_row():
 
 
 def test_refresh_keyboard_carries_the_continue_callback():
-    markup = _refresh_keyboard()
-    button = markup.inline_keyboard[0][0]
+    button = CONTINUE_KEYBOARD.inline_keyboard[0][0]
 
     assert button.callback_data == CONTINUE_CALLBACK
     assert button.text == "📥 Ещё дайджест"
