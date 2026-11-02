@@ -21,28 +21,9 @@ _MSG_ID_ONLY_RE = re.compile(r"\(\s*Msg:[^)\n]*\)", re.IGNORECASE)
 
 def _strip_message_id_refs(text: str) -> str:
     """Removes technical ``| Msg: <ids>`` fragments from the generated digest."""
-    if not text:
-        return text
     cleaned = _MSG_ID_SUFFIX_RE.sub("", text)
     cleaned = _MSG_ID_ONLY_RE.sub("", cleaned)
     return "\n".join(line.rstrip() for line in cleaned.split("\n"))
-
-
-def _block_text(block: dict, max_block_chars: int) -> str:
-    text = block.get("text")
-    if text is None:
-        text = block.get("raw_text") or ""
-    if max_block_chars and len(text) > max_block_chars:
-        text = text[:max_block_chars].rstrip() + "…"
-    return text
-
-
-def _block_ids(block: dict) -> set[int]:
-    merged = block.get("merged_ids") or []
-    ids = {int(item) for item in merged if item is not None}
-    if not ids and block.get("message_id") is not None:
-        ids.add(int(block["message_id"]))
-    return ids
 
 
 def _format_id_ranges(ids: set[int] | list[int]) -> str:
@@ -76,7 +57,12 @@ def _format_block_line(block: dict, max_block_chars: int) -> str:
     sender = block.get("sender_name") or "Unknown"
     reply_id = block.get("reply_to_id")
     reply_part = f" (In reply to {reply_id})" if reply_id else ""
-    text = _block_text(block, max_block_chars)
+
+    text = block.get("text")
+    if text is None:
+        text = block.get("raw_text") or ""
+    if max_block_chars and len(text) > max_block_chars:
+        text = text[:max_block_chars].rstrip() + "…"
 
     return f"[{date_display}] [Msg: {id_label}] {sender}{reply_part}: {text}"
 
@@ -169,7 +155,12 @@ def summarize_messages(
 
     used_ids: set[int] = set()
     for index in selected_indices:
-        used_ids.update(_block_ids(messages[index]))
+        block = messages[index]
+        merged = block.get("merged_ids") or []
+        ids = {int(item) for item in merged if item is not None}
+        if not ids and block.get("message_id") is not None:
+            ids.add(int(block["message_id"]))
+        used_ids.update(ids)
 
     logger.info(
         "Summarizing %s of %s blocks for group '%s' (%s chars)%s",

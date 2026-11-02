@@ -9,12 +9,6 @@ from src.contracts import ReportMetadata
 logger = logging.getLogger(__name__)
 
 
-def _safe_name(value: str, fallback: str = "chat") -> str:
-    cleaned = re.sub(r"[^\w\s.-]", "", value or "").strip()
-    cleaned = re.sub(r"[\s]+", "_", cleaned)
-    return cleaned or fallback
-
-
 def build_report_paths(
     data_dir: str,
     group_name: str,
@@ -28,7 +22,9 @@ def build_report_paths(
     overwrite each other.  Each run gets its own timestamped file; ``latest`` is
     an additional convenience copy.
     """
-    safe_group = _safe_name(group_name)
+    safe_group = re.sub(r"[^\w\s.-]", "", group_name or "").strip()
+    safe_group = re.sub(r"[\s]+", "_", safe_group) or "chat"
+    safe_id = re.sub(r"[^\w.-]", "", str(group_id or "")) or "unknown"
     safe_id = re.sub(r"[^\w.-]", "", str(group_id or "")) or "unknown"
     stamp = (timestamp or datetime.now()).strftime("%Y-%m-%d_%H%M%S")
     base = f"{prefix}_{safe_group}_{safe_id}"
@@ -81,7 +77,6 @@ def build_report(
     summary: str,
     group_name: str,
     group_id: str | None = None,
-    metadata: ReportMetadata | None = None,
 ) -> str:
     """Combines summary text into the standard digest report header."""
     title = f"# Дайджест: {group_name}"
@@ -104,7 +99,8 @@ def build_report(
     return digest_output
 
 
-def _atomic_write(path: str, content: str) -> None:
+def write_text_atomic(path: str, content: str) -> None:
+    """Atomic text writer used by report and export paths."""
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
 
@@ -123,11 +119,6 @@ def _atomic_write(path: str, content: str) -> None:
         raise
 
 
-def write_text_atomic(path: str, content: str) -> None:
-    """Public atomic text writer used by report and export paths."""
-    _atomic_write(path, content)
-
-
 def finalize_report(
     digest_output: str,
     metadata: ReportMetadata,
@@ -141,8 +132,8 @@ def finalize_report(
     """
     final_content = digest_output + _metadata_block(metadata)
 
-    _atomic_write(output_file, final_content)
+    write_text_atomic(output_file, final_content)
     if latest_file and latest_file != output_file:
-        _atomic_write(latest_file, final_content)
+        write_text_atomic(latest_file, final_content)
 
     logger.info("Report saved to %s", output_file)

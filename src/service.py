@@ -442,7 +442,7 @@ async def execute_digest_pipeline(
             )
 
             report_output = build_report_func(
-                summary.text, group_name, group_id, metadata
+                summary.text, group_name, group_id
             )
             finalize_report_func(
                 report_output, metadata, report_path, latest_file=latest_path
