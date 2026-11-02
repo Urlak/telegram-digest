@@ -114,6 +114,7 @@ def summarize_messages(
     prefer_oldest: bool = False,
     timeout_seconds: float = 120.0,
     retries: int = 2,
+    previous_digest: str | None = None,
     now: datetime | None = None,
 ) -> SummaryResult:
     """Summarizes Telegram chat messages using Gemini AI.
@@ -130,6 +131,8 @@ def summarize_messages(
             newest suffix (fallback mode).
         timeout_seconds: Network timeout passed to the Gemini client.
         retries: Limited retries for transient 429/503-style failures.
+        previous_digest: Latest saved digest for the same group, passed as
+            read-only continuity context (``None`` when none exists yet).
         now: Injectable current datetime for tests.
 
     Returns:
@@ -238,6 +241,19 @@ ID и reply-связи нужны только для понимания цеп�
 ## Открытые вопросы
 - ...
 """.strip()
+
+    if previous_digest:
+        system_instruction += (
+            "\n\nКОНТЕКСТ: предыдущий дайджест этой же группы (только для связности,"
+            " не для пересказа). Используй его, чтобы связать текущие обсуждения"
+            " с продолжающимися темами и учесть нерешённые вопросы. Не пересказывай"
+            " его и не выноси старые темы в «Главное», если они не продолжаются"
+            " в логе ниже: текущий дайджест должен описывать только сообщения"
+            " из лога. Если тема является продолжением — отметь это.\n\n"
+            "--- НАЧАЛО ПРЕДЫДУЩЕГО ДАЙДЖЕСТА ---\n"
+            f"{previous_digest.strip()}\n"
+            "--- КОНЕЦ ПРЕДЫДУЩЕГО ДАЙДЖЕСТА ---"
+        )
 
     client = genai.Client(
         api_key=api_key,

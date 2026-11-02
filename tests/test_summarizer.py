@@ -82,6 +82,39 @@ def test_summarize_messages_with_data():
         assert "Не объединяй разные обсуждения" in config["system_instruction"]
 
 
+def test_previous_digest_is_included_as_context():
+    with patch("src.summarizer.genai.Client") as mock_client:
+        mock_instance = MagicMock()
+        mock_client.return_value = mock_instance
+        mock_instance.models.generate_content.return_value = _response("ok")
+
+        messages = [
+            {
+                "text": "Hello",
+                "message_id": 1,
+                "sender_name": "Alice",
+                "date": "2024-03-19 12:00",
+                "date_full": "2024-03-19 12:00:00 +03:00",
+                "reply_to_id": None,
+            }
+        ]
+
+        summarize_messages(
+            messages, "Test Group", "fake_key", 100, previous_digest="Прошлый дайджест."
+        )
+        instruction = mock_instance.models.generate_content.call_args[1]["config"][
+            "system_instruction"
+        ]
+        assert "Прошлый дайджест." in instruction
+        assert "НАЧАЛО ПРЕДЫДУЩЕГО ДАЙДЖЕСТА" in instruction
+
+        summarize_messages(messages, "Test Group", "fake_key", 100)
+        instruction = mock_instance.models.generate_content.call_args[1]["config"][
+            "system_instruction"
+        ]
+        assert "НАЧАЛО ПРЕДЫДУЩЕГО ДАЙДЖЕСТА" not in instruction
+
+
 def test_format_id_ranges_compacts_consecutive_ids():
     assert _format_id_ranges({3195, 3196, 3197, 3220}) == "3195-3197, 3220"
     assert _format_id_ranges([3231, 3232, 3234]) == "3231-3232, 3234"

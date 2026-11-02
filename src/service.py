@@ -192,6 +192,23 @@ def _report_size(path: str | None) -> str:
         return "n/a"
 
 
+def _load_previous_digest(
+    config: AppConfig, group_name: str, group_id: str
+) -> str | None:
+    """Loads the group's latest saved digest as continuity context for the LLM.
+
+    The trailing ``[METADATA]`` block is meaningless to the model and is cut
+    off.  Returns ``None`` when no digest exists for the group yet.
+    """
+    data_dir = os.path.dirname(config.session_path)
+    _, latest_path = build_report_paths(data_dir, group_name, group_id)
+    if not os.path.exists(latest_path):
+        return None
+    with open(latest_path, encoding="utf-8") as handle:
+        content = handle.read()
+    return content.split("[METADATA]", 1)[0].strip() or None
+
+
 async def execute_digest_pipeline(
     client: TelegramClient,
     config: AppConfig,
@@ -397,6 +414,7 @@ async def execute_digest_pipeline(
                 "prefer_oldest": outcome.mode == "unread",
                 "timeout_seconds": config.gemini_timeout_seconds,
                 "retries": config.request_retries,
+                "previous_digest": _load_previous_digest(config, group_name, group_id),
             }
             summarize_coro = (
                 summarize_fn(**summary_kwargs)

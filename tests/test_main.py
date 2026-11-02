@@ -596,3 +596,56 @@ async def test_truncated_digest_is_logged_as_a_warning(caplog):
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert any("[DIGEST_TRUNCATED]" in r.getMessage() for r in warnings)
     assert any("1 of 2 blocks" in r.getMessage() for r in warnings)
+@pytest.mark.asyncio
+async def test_pipeline_passes_previous_digest_to_summarizer(tmp_path):
+    """The latest saved digest is passed to the LLM as continuity context."""
+    config = make_config(session_path=str(tmp_path / "session"))
+    latest = tmp_path / "digest_Test_Group_-100123_latest.md"
+    latest.write_text(
+        "# Дайджест\n\nПрошлое обсуждение.\n[METADATA]\n- Generated at: N/A\n",
+        encoding="utf-8",
+    )
+    mock_client = MagicMock()
+    with (
+        patch("src.main._init_client", new_callable=AsyncMock, return_value=mock_client),
+        patch(
+            "src.service._find_target_dialog",
+            new_callable=AsyncMock,
+            return_value=fake_dialog(),
+        ),
+        patch(
+            "src.main.fetch_target_messages_with_stats",
+            new_callable=AsyncMock,
+            return_value=fallback_outcome(),
+        ),
+        patch("src.main.collapse_consecutive_messages", return_value=SAMPLE_MESSAGES),
+        patch("src.main.summarize_messages", return_value=summary_result()) as mock_sum,
+        patch("src.main.build_report", return_value="report text"),
+        patch("src.main.finalize_report"),
+    ):
+        await run_pipeline(config, is_auto_mode=True)
+        previous = mock_sum.call_args.kwargs["previous_digest"]
+        assert "Прошлое обсуждение." in previous
+        assert "[METADATA]" not in previous
+
+    latest.unlink()
+    with (
+        patch("src.main._init_client", new_callable=AsyncMock, return_value=mock_client),
+        patch(
+            "src.service._find_target_dialog",
+            new_callable=AsyncMock,
+            return_value=fake_dialog(),
+        ),
+        patch(
+            "src.main.fetch_target_messages_with_stats",
+            new_callable=AsyncMock,
+            return_value=fallback_outcome(),
+        ),
+        patch("src.main.collapse_consecutive_messages", return_value=SAMPLE_MESSAGES),
+        patch("src.main.summarize_messages", return_value=summary_result()) as mock_sum,
+        patch("src.main.build_report", return_value="report text"),
+        patch("src.main.finalize_report"),
+    ):
+        await run_pipeline(config, is_auto_mode=True)
+        assert mock_sum.call_args.kwargs["previous_digest"] is None
+
