@@ -23,14 +23,32 @@ No lint, formatter, typecheck, or CI config exists; do not invent commands. Run 
 
 
 ## Code Change Principles
-- **Prefer minimal diffs.** Make the smallest change that fully solves the requested task. Do not rewrite or refactor unrelated code or neighboring functions.
-- **Avoid redundant defensive checks.** Do not add unnecessary null checks, type checks, or input validation inside private/internal methods when inputs are already validated and their contracts are clear. Validate untrusted input at system boundaries.
-- **Avoid unnecessary abstractions.** Do not introduce one-off helpers, classes, interfaces, generic frameworks, or design patterns unless they provide clear value through reuse or meaningful simplification.
-- **Reuse existing code.** Prefer existing utilities, helpers, and established project patterns over implementing new solutions.
-- **Avoid speculative complexity.** Do not add hypothetical error handling, fallback mechanisms, logging, configuration options, or compatibility layers unless they are required by the task or existing behavior.
-- **Keep changes within scope.** Do not opportunistically improve, modernize, or clean up unrelated code.
-- **Keep tests focused.** Add or update tests for changed behavior, but avoid redundant tests that duplicate existing coverage.
-- **Do not over-engineer.** Prefer straightforward, readable solutions over maximum generality or theoretical robustness. Optimize for the current requirements, not hypothetical future needs.
+Scope
+- Make the smallest change that solves the task. If the diff exceeds roughly the size of the logic you're modifying, stop and justify it.
+- Prefer editing existing code over adding new code, functions, or files. Create a new file only when it is clearly the right home for the code.
+- Do not touch code unrelated to the task: no opportunistic cleanup, reformatting, renaming, or "while I'm here" changes.
+- Do not rewrite a function to add a line. Make targeted edits.
+- Do not add new dependencies for a small task.
+- Delete unused or replaced code immediately. Since there is no backward compatibility, do not leave deprecated functions, legacy files, or commented-out code.
+
+Match the codebase
+- Match the error-handling, validation, logging, comment density, and abstraction level of the surrounding code. If neighbors don't null-check, don't add null checks.
+- Before writing a helper, search the codebase and stdlib for one that already exists.
+- Validate at boundaries only: public APIs, user input, external data, deserialization. Internal callers are trusted; do not re-validate inside private methods.
+
+Simplicity
+- Inline one-off helpers. Do not introduce a function, class, interface, or abstraction with fewer than two concrete call sites.
+- No speculative generality: no unused parameters, config flags, options, compatibility layers, or interfaces with one implementer.
+- Handle errors that can actually occur, not hypothetical ones. Do not add try/catch that only logs, re-throws, or swallows.
+- Prefer modifying existing logic over wrapping it.
+
+Tests
+- Test behavior, not implementation. Do not duplicate existing coverage. One test per behavior is usually enough.
+- Avoid heavy mocking for internal logic. Test against real internal dependencies where possible to keep the architecture simple.
+
+Workflow
+- Before editing, state in one or two sentences which files and functions you will change and roughly how many lines. If that is more than a handful of files, confirm with me first.
+- After editing, review your own diff: is every changed line necessary for the stated task? Remove anything that isn't. Do not re-emit unchanged code.
 
 ## Architecture and data flow
 
